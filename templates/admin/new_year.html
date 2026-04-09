@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}새 학년도 초기화{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-lg-7">
+
+<!-- 헤더 -->
+<div class="d-flex align-items-center gap-3 mb-4">
+    <h3 class="mb-0 text-danger">새 학년도 초기화</h3>
+    <span class="badge bg-danger fs-6">{{ year }}년도 → {{ year + 1 }}년도</span>
+</div>
+
+<!-- 경고 배너 -->
+<div class="alert alert-danger border-danger border-2">
+    <h5 class="alert-heading">⚠ 주의: 이 작업은 되돌릴 수 없습니다</h5>
+    <p class="mb-0">
+        아래 데이터가 <strong>영구적으로 삭제</strong>됩니다.
+        반드시 <strong>백업을 먼저 다운로드</strong>한 후 초기화를 진행하세요.
+    </p>
+</div>
+
+<!-- 현황 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-danger h-100">
+            <div class="card-body py-3">
+                <div class="text-danger small fw-bold">삭제</div>
+                <div class="fs-2 fw-bold text-danger">{{ stats.students }}</div>
+                <div class="small text-muted">학생 계정</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-danger h-100">
+            <div class="card-body py-3">
+                <div class="text-danger small fw-bold">삭제</div>
+                <div class="fs-2 fw-bold text-danger">{{ stats.attendances }}</div>
+                <div class="small text-muted">출결 기록</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-danger h-100">
+            <div class="card-body py-3">
+                <div class="text-danger small fw-bold">삭제</div>
+                <div class="fs-2 fw-bold text-danger">{{ stats.applications }}</div>
+                <div class="small text-muted">자습 신청</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-danger h-100">
+            <div class="card-body py-3">
+                <div class="text-danger small fw-bold">삭제</div>
+                <div class="fs-2 fw-bold text-danger">{{ stats.study_logs }}</div>
+                <div class="small text-muted">학습 기록</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-danger h-100">
+            <div class="card-body py-3">
+                <div class="text-danger small fw-bold">삭제</div>
+                <div class="fs-2 fw-bold text-danger">{{ stats.att_logs }}</div>
+                <div class="small text-muted">출결 수정 이력</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card text-center border-success h-100">
+            <div class="card-body py-3">
+                <div class="text-success small fw-bold">보존</div>
+                <div class="small mt-1 text-success">
+                    관리자/교사 계정<br>
+                    자습실 설정<br>
+                    자습 시간 설정<br>
+                    공휴일 설정
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 1단계: 백업 -->
+<div class="card mb-3 border-warning">
+    <div class="card-header bg-warning text-dark fw-bold">
+        1단계 — 백업 다운로드 (권장)
+    </div>
+    <div class="card-body">
+        <p class="mb-3 small">
+            초기화 전 현재 연도의 학생 명단, 출결 요약, 학습 기록, 자습 신청 내역을
+            Excel 파일로 내려받습니다.
+        </p>
+        <a href="{{ url_for('admin_bp.new_year_backup') }}"
+           class="btn btn-warning">
+            📥 백업 Excel 다운로드
+        </a>
+    </div>
+</div>
+
+<!-- 2단계: 초기화 -->
+<div class="card border-danger">
+    <div class="card-header bg-danger text-white fw-bold">
+        2단계 — 초기화 실행
+    </div>
+    <div class="card-body">
+        <p class="small mb-3">
+            초기화를 실행하려면 아래 입력란에 정확히
+            <code class="text-danger fw-bold fs-6">{{ confirm_phrase }}</code>
+            를 입력하세요.
+        </p>
+        <form method="POST" id="resetForm">
+            <div class="mb-3">
+                <input type="text" class="form-control border-danger"
+                       id="confirm_phrase" name="confirm_phrase"
+                       placeholder="{{ confirm_phrase }}"
+                       autocomplete="off" spellcheck="false">
+                <div id="phrase-hint" class="form-text text-muted mt-1">
+                    위 문구를 그대로 입력하면 버튼이 활성화됩니다.
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="submit" id="btn-reset"
+                        class="btn btn-danger" disabled>
+                    새 학년도 초기화 실행
+                </button>
+                <a href="{{ url_for('admin_bp.dashboard') }}"
+                   class="btn btn-outline-secondary">취소</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+</div><!-- /col -->
+</div><!-- /row -->
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+(function () {
+    const phrase  = {{ confirm_phrase | tojson }};
+    const inp     = document.getElementById('confirm_phrase');
+    const btn     = document.getElementById('btn-reset');
+    const hint    = document.getElementById('phrase-hint');
+
+    inp.addEventListener('input', function () {
+        const ok = this.value === phrase;
+        btn.disabled = !ok;
+        if (ok) {
+            inp.classList.replace('border-danger', 'border-success');
+            hint.textContent = '✓ 확인 문구가 일치합니다.';
+            hint.className   = 'form-text text-success mt-1';
+        } else {
+            inp.classList.replace('border-success', 'border-danger');
+            hint.textContent = '위 문구를 그대로 입력하면 버튼이 활성화됩니다.';
+            hint.className   = 'form-text text-muted mt-1';
+        }
+    });
+
+    document.getElementById('resetForm').addEventListener('submit', function (e) {
+        if (!confirm('정말로 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+            e.preventDefault();
+        }
+    });
+})();
+</script>
+{% endblock %}

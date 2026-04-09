@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}대시보드 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">대시보드</h2>
+
+<div class="row">
+    <!-- 오늘 요약 -->
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                {{ today.strftime('%m월 %d일') }} {{ day_names[dow] }}요일
+                {% if day_type == 'holiday' %}
+                <span class="badge bg-danger ms-2">{{ holiday_name }}</span>
+                {% elif day_type == 'saturday' %}
+                <span class="badge bg-warning text-dark ms-2">토요일</span>
+                {% elif day_type == 'sunday' %}
+                <span class="badge bg-secondary ms-2">일요일</span>
+                {% else %}
+                <span class="badge bg-success ms-2">평일</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if day_type == 'sunday' %}
+                    <p class="text-muted">일요일에는 자율학습이 없습니다.</p>
+                {% elif not period_times %}
+                    <p class="text-muted">오늘은 자습 시간이 설정되어 있지 않습니다.</p>
+                {% else %}
+                    <p class="mb-2"><strong>오늘의 자습 시간</strong></p>
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>교시</th><th>시간</th><th>신청</th></tr></thead>
+                        <tbody>
+                        {% for period, times in period_times.items() %}
+                        <tr>
+                            <td>{{ period }}교시</td>
+                            <td>{{ times[0] }} ~ {{ times[1] }}</td>
+                            <td>
+                                {% if period in today_applications %}
+                                <span class="badge bg-success">신청됨</span>
+                                {% else %}
+                                <span class="badge bg-secondary">미신청</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 출석 체크 -->
+    <div class="col-md-4">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-qr-code-scan"></i> 출석 현황
+            </div>
+            <div class="card-body">
+                {% if day_type == 'sunday' or not period_times %}
+                    <p class="text-muted">오늘은 출석 체크가 없습니다.</p>
+                {% else %}
+                    <!-- QR 출석 안내 -->
+                    <div class="alert alert-info py-2 mb-3">
+                        <small>
+                            <strong>QR코드로 출석하세요!</strong><br>
+                            자습실에 게시된 QR코드를 휴대폰으로 스캔하면 자동으로 출석 처리됩니다.
+                        </small>
+                    </div>
+
+                    {% for period, times in period_times.items() %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>{{ period }}교시 ({{ times[0] }}~{{ times[1] }})</span>
+                        {% if period in today_attendance %}
+                            {% set att = today_attendance[period] %}
+                            <span class="badge bg-success" title="{{ att.checked_at.strftime('%H:%M') if att.checked_at else '' }}">
+                                출석 {{ att.checked_at.strftime('%H:%M') if att.checked_at else '' }}
+                            </span>
+                        {% elif period in today_applications %}
+                            <span class="badge bg-warning text-dark">QR 대기</span>
+                        {% else %}
+                            <span class="badge bg-secondary">미신청</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 이번 달 신청 현황 -->
+    <div class="col-md-4">
+        <div class="card border-info">
+            <div class="card-header bg-info text-white">이번 달 신청 현황</div>
+            <div class="card-body text-center">
+                <h1 class="display-4">{{ month_applications }}건</h1>
+                <p class="text-muted">{{ today.month }}월 자습 신청</p>
+                <a href="{{ url_for('student.apply') }}" class="btn btn-outline-info">자습 신청하기</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- 이번 주 학습 현황 -->
+    <div class="col-md-6">
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">이번 주 학습 현황</div>
+            <div class="card-body text-center">
+                <h2 class="display-5">{{ total_minutes // 60 }}시간 {{ total_minutes % 60 }}분</h2>
+                <p class="text-muted">이번 주 총 학습 시간</p>
+                <a href="{{ url_for('student.study_log') }}" class="btn btn-outline-warning">학습 기록 보기</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 빠른 링크 -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">빠른 메뉴</div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('student.apply') }}" class="btn btn-primary">자습 신청</a>
+                    <a href="{{ url_for('student.study_log') }}" class="btn btn-outline-secondary">학습 기록</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

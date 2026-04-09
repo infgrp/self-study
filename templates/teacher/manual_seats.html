@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}{{ room.name }} 수동 자리 배정{% endblock %}
+
+{% block content %}
+<!-- ── 헤더 ── -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">
+        {{ room.name }}
+        <span class="text-muted fw-normal fs-6">수동 자리 배정</span>
+    </h4>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('teacher.settings') }}" class="btn btn-outline-secondary btn-sm">← 설정</a>
+        <a href="{{ url_for('teacher.seat_layout', room_id=room.id) }}" class="btn btn-outline-secondary btn-sm">배치도 보기</a>
+    </div>
+</div>
+
+<!-- ── 안내 ── -->
+<div class="alert alert-info py-2 mb-3">
+    <strong>사용법:</strong> 각 번호 슬롯의 드롭다운에서 배정할 학생을 선택하세요.
+    같은 학생이 두 자리에 중복 선택되면 <span class="text-danger fw-bold">빨간 테두리</span>로 표시됩니다.
+    저장 후 배치도에서 드래그 앤 드롭으로 좌석 위치를 조정할 수 있습니다.
+</div>
+
+<form method="POST" id="seatForm">
+<div class="row g-4">
+
+    <!-- 남학생 -->
+    <div class="col-md-6">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <span>남학생 좌석</span>
+                <span class="badge bg-light text-primary">{{ males|length }}명 / {{ male_cap }}석</span>
+            </div>
+            <div class="card-body p-2">
+                {% if male_cap > 0 %}
+                <div class="seat-grid" id="male-grid">
+                    {% for i in range(1, male_cap + 1) %}
+                    <div class="seat-slot">
+                        <div class="slot-num male-num">{{ i }}번</div>
+                        <select name="seat_m_{{ i }}"
+                                class="form-select form-select-sm male-sel slot-sel"
+                                data-gender="m" data-seat="{{ i }}">
+                            <option value="">— 빈 자리 —</option>
+                            {% for sr in males %}
+                            <option value="{{ sr.user.id }}"
+                                {% if seat_map_m.get(i) and seat_map_m[i].id == sr.user.id %}
+                                    selected
+                                {% endif %}>
+                                {{ sr.user.student_id }} {{ sr.user.name }}
+                                ({{ sr.user.grade }}-{{ sr.user.class_num }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small m-2">남학생 정원이 0입니다. 설정에서 정원을 먼저 지정하세요.</p>
+                {% endif %}
+            </div>
+        </div>
+        <!-- 미배정 남학생 -->
+        <div id="unassigned-m" class="mt-2"></div>
+    </div>
+
+    <!-- 여학생 -->
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                <span>여학생 좌석</span>
+                <span class="badge bg-light text-danger">{{ females|length }}명 / {{ female_cap }}석</span>
+            </div>
+            <div class="card-body p-2">
+                {% if female_cap > 0 %}
+                <div class="seat-grid" id="female-grid">
+                    {% for i in range(1, female_cap + 1) %}
+                    <div class="seat-slot">
+                        <div class="slot-num female-num">{{ i }}번</div>
+                        <select name="seat_f_{{ i }}"
+                                class="form-select form-select-sm female-sel slot-sel"
+                                data-gender="f" data-seat="{{ i }}">
+                            <option value="">— 빈 자리 —</option>
+                            {% for sr in females %}
+                            <option value="{{ sr.user.id }}"
+                                {% if seat_map_f.get(i) and seat_map_f[i].id == sr.user.id %}
+                                    selected
+                                {% endif %}>
+                                {{ sr.user.student_id }} {{ sr.user.name }}
+                                ({{ sr.user.grade }}-{{ sr.user.class_num }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small m-2">여학생 정원이 0입니다. 설정에서 정원을 먼저 지정하세요.</p>
+                {% endif %}
+            </div>
+        </div>
+        <!-- 미배정 여학생 -->
+        <div id="unassigned-f" class="mt-2"></div>
+    </div>
+
+</div><!-- /row -->
+
+<!-- ── 저장 버튼 ── -->
+<div class="d-flex align-items-center gap-3 mt-4">
+    <button type="submit" class="btn btn-success px-4" id="btn-save">
+        💾 배정 저장 후 배치도로 이동
+    </button>
+    <span id="dup-warn" class="text-danger small fw-bold" style="display:none;">
+        ⚠ 중복 배정된 학생이 있습니다. 확인 후 저장하세요.
+    </span>
+</div>
+</form>
+{% endblock %}
+
+
+{% block scripts %}
+<style>
+.seat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    padding: 4px;
+}
+.seat-slot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+.slot-num {
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 28px;
+    text-align: center;
+    padding: 2px 4px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.male-num   { background: #dbeafe; color: #1e3a8a; }
+.female-num { background: #fce7f3; color: #831843; }
+
+.slot-sel.dup { border-color: #dc2626 !important; box-shadow: 0 0 0 2px #fecaca; }
+.slot-sel.assigned { background-color: #f0fdf4; }
+
+/* 미배정 학생 태그 */
+.unassigned-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 99px;
+    padding: 2px 10px;
+    font-size: 12px;
+    color: #9a3412;
+    margin: 2px;
+}
+</style>
+
+<script>
+(function () {
+    // ── 중복 검사 + 미배정 학생 표시 ──
+    const maleSels   = [...document.querySelectorAll('.male-sel')];
+    const femaleSels = [...document.querySelectorAll('.female-sel')];
+
+    // Jinja 에서 학생 목록 전달
+    const maleStudents   = [
+        {% for sr in males %}
+        { id: {{ sr.user.id }},
+          text: "{{ sr.user.student_id }} {{ sr.user.name }} ({{ sr.user.grade }}-{{ sr.user.class_num }})" }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    const femaleStudents = [
+        {% for sr in females %}
+        { id: {{ sr.user.id }},
+          text: "{{ sr.user.student_id }} {{ sr.user.name }} ({{ sr.user.grade }}-{{ sr.user.class_num }})" }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    function checkDuplicates(sels, students, unassignedEl) {
+        // 선택된 uid 목록
+        const selected = sels
+            .map(s => parseInt(s.value) || 0)
+            .filter(v => v > 0);
+
+        const dupeIds = new Set(
+            selected.filter((v, i, a) => a.indexOf(v) !== i)
+        );
+
+        let hasDup = false;
+        sels.forEach(sel => {
+            const uid = parseInt(sel.value) || 0;
+            if (uid && dupeIds.has(uid)) {
+                sel.classList.add('dup');
+                hasDup = true;
+            } else {
+                sel.classList.remove('dup');
+            }
+            // 배정된 슬롯 배경색
+            sel.classList.toggle('assigned', uid > 0);
+        });
+
+        // 미배정 학생 표시
+        const assignedIds = new Set(selected);
+        const unassigned = students.filter(s => !assignedIds.has(s.id));
+        if (unassigned.length > 0) {
+            unassignedEl.innerHTML =
+                '<div class="text-muted small mb-1">미배정 학생:</div>' +
+                unassigned.map(s =>
+                    `<span class="unassigned-badge">⚠ ${s.text}</span>`
+                ).join('');
+        } else {
+            unassignedEl.innerHTML =
+                '<div class="text-success small"><strong>✓</strong> 전원 배정 완료</div>';
+        }
+
+        return hasDup;
+    }
+
+    function validate() {
+        const dupM = checkDuplicates(maleSels,   maleStudents,   document.getElementById('unassigned-m'));
+        const dupF = checkDuplicates(femaleSels, femaleStudents, document.getElementById('unassigned-f'));
+        const warn = document.getElementById('dup-warn');
+        warn.style.display = (dupM || dupF) ? '' : 'none';
+    }
+
+    // 이벤트 연결
+    [...maleSels, ...femaleSels].forEach(sel => {
+        sel.addEventListener('change', validate);
+    });
+
+    // 폼 제출 시 중복 경고
+    document.getElementById('seatForm').addEventListener('submit', function (e) {
+        const selected_m = maleSels.map(s => parseInt(s.value) || 0).filter(v => v > 0);
+        const selected_f = femaleSels.map(s => parseInt(s.value) || 0).filter(v => v > 0);
+        const allSel = [...selected_m, ...selected_f];
+        const hasDup = allSel.length !== new Set(allSel).size;
+        if (hasDup) {
+            e.preventDefault();
+            alert('중복 배정된 학생이 있습니다. 확인 후 다시 저장하세요.');
+        }
+    });
+
+    // 초기 검사
+    validate();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}마이페이지{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <!-- 내 정보 -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">내 정보</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <th class="text-muted" style="width:30%">이름</th>
+                        <td>{{ current_user.name }}</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">아이디</th>
+                        <td>{{ current_user.username }}</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">학번</th>
+                        <td>{{ current_user.student_id }}</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">학년/반</th>
+                        <td>{{ current_user.grade }}학년 {{ current_user.class_num }}반</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">성별</th>
+                        <td>{{ '남' if current_user.gender == 'M' else '여' }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 내 정보 수정 -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">내 정보 수정</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="action" value="profile">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">학번</label>
+                        <input type="text" name="student_id" class="form-control"
+                               value="{{ current_user.student_id or '' }}"
+                               placeholder="학번 5자리" maxlength="5">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">성별</label>
+                        <select name="gender" class="form-select">
+                            <option value="">선택 안 함</option>
+                            <option value="M" {{ 'selected' if current_user.gender == 'M' }}>남</option>
+                            <option value="F" {{ 'selected' if current_user.gender == 'F' }}>여</option>
+                        </select>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-info text-white">저장하기</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 비밀번호 변경 -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">비밀번호 변경</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="action" value="password">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">현재 비밀번호</label>
+                        <input type="password" name="current_password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">새 비밀번호</label>
+                        <input type="password" name="new_password" class="form-control" required>
+                        <div class="form-text">8자 이상, 영문 + 숫자 조합</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">새 비밀번호 확인</label>
+                        <input type="password" name="confirm_password" class="form-control" required>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-secondary">변경하기</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="{{ url_for('student.dashboard') }}" class="text-secondary">← 대시보드로 돌아가기</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

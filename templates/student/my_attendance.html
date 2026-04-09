@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}내 출결 현황 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<!-- 헤더 + 월 네비게이션 -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">내 출결 현황</h2>
+    <div class="d-flex align-items-center gap-2">
+        <a href="{{ url_for('student.my_attendance', year=prev_year, month=prev_month) }}"
+           class="btn btn-outline-secondary btn-sm">&lt;</a>
+        <span class="fw-semibold fs-5">{{ year }}년 {{ month }}월</span>
+        <a href="{{ url_for('student.my_attendance', year=next_year, month=next_month) }}"
+           class="btn btn-outline-secondary btn-sm">&gt;</a>
+    </div>
+</div>
+
+<!-- 월간 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-secondary">
+            <div class="card-body py-3">
+                <div class="text-muted small">신청</div>
+                <div class="fs-3 fw-bold">{{ total_applied }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-success">
+            <div class="card-body py-3">
+                <div class="text-success small">출석</div>
+                <div class="fs-3 fw-bold text-success">{{ total_present }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-warning">
+            <div class="card-body py-3">
+                <div class="text-warning small">지각</div>
+                <div class="fs-3 fw-bold text-warning">{{ total_late }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-danger">
+            <div class="card-body py-3">
+                <div class="text-danger small">결석</div>
+                <div class="fs-3 fw-bold text-danger">{{ total_absent }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center" style="border-color:#fd7e14;">
+            <div class="card-body py-3">
+                <div class="small" style="color:#fd7e14;">조퇴</div>
+                <div class="fs-3 fw-bold" style="color:#fd7e14;">{{ total_early_leave }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-2">
+        <div class="card text-center border-info">
+            <div class="card-body py-3">
+                <div class="text-info small">출석인정</div>
+                <div class="fs-3 fw-bold text-info">{{ total_approved }}</div>
+                <div class="text-muted small">교시</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card border-{{ 'success' if rate >= 90 else ('primary' if rate >= 80 else ('warning' if rate >= 60 else 'danger')) }}">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="small text-muted">참여율 (출석+지각 / 신청)</span>
+                    <span class="fw-bold fs-5
+                        {{ 'text-success' if rate >= 90 else ('text-primary' if rate >= 80 else ('text-warning' if rate >= 60 else 'text-danger')) }}">
+                        {{ rate }}%
+                    </span>
+                </div>
+                <div class="progress" style="height: 10px;">
+                    <div class="progress-bar bg-{{ 'success' if rate >= 90 else ('primary' if rate >= 80 else ('warning' if rate >= 60 else 'danger')) }}"
+                         style="width: {{ rate }}%;"></div>
+                </div>
+                {% if total_applied == 0 %}
+                <div class="text-muted small mt-1">이 달에 신청 내역이 없습니다.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 출결 상세 테이블 -->
+<div class="card">
+    <div class="card-header">{{ year }}년 {{ month }}월 일별 출결 상세</div>
+    <div class="card-body p-0">
+        {% if days %}
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover text-center mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width:90px;">날짜</th>
+                        <th style="min-width:55px;">요일</th>
+                        {% for p in all_periods %}
+                        <th style="min-width:75px;">{{ p }}교시</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set dow_names = ['월','화','수','목','금','토','일'] %}
+                    {% for day in days %}
+                    <tr>
+                        <td class="fw-semibold">{{ day.date.strftime('%m/%d') }}</td>
+                        <td class="{{ 'text-danger' if day.date.weekday() == 5 else '' }}">
+                            {{ dow_names[day.date.weekday()] }}
+                        </td>
+                        {% for p in all_periods %}
+                        <td>
+                            {% if (day.date, p) in apps or p in day.apps %}
+                                {% if p in day.atts %}
+                                    {% set att = day.atts[p] %}
+                                    {% if att.status == 'present' %}
+                                    <span class="badge bg-success">출석</span>
+                                    {% elif att.status == 'late' %}
+                                    <span class="badge bg-warning text-dark">지각</span>
+                                    {% elif att.status == 'absent' %}
+                                    <span class="badge bg-danger">결석</span>
+                                    {% elif att.status == 'early_leave' %}
+                                    <span class="badge bg-orange text-white">조퇴</span>
+                                    {% elif att.status == 'approved_leave' %}
+                                    <span class="badge bg-info text-white">출석인정</span>
+                                    {% endif %}
+                                    {% if att.checked_at %}
+                                    <br><small class="text-muted">입실 {{ att.checked_at.strftime('%H:%M') }}</small>
+                                    {% endif %}
+                                    {% if att.checked_out_at %}
+                                    <br><small class="{{ 'text-warning' if att.status == 'early_leave' else 'text-muted' }}">
+                                        퇴실 {{ att.checked_out_at.strftime('%H:%M') }}
+                                        {% if att.study_minutes is not none %}({{ att.study_minutes }}분){% endif %}
+                                    </small>
+                                    {% endif %}
+                                    {% if att.status == 'approved_leave' and att.early_leave_note %}
+                                    <br><small class="text-info">📝 {{ att.early_leave_note }}</small>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted small">신청</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <p class="mb-1">{{ year }}년 {{ month }}월에 자습 신청 또는 출결 기록이 없습니다.</p>
+            <a href="{{ url_for('student.apply', year=year, month=month) }}"
+               class="btn btn-outline-primary btn-sm mt-2">자습 신청하러 가기</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 범례 -->
+<div class="d-flex gap-3 mt-3 flex-wrap">
+    <span class="badge bg-success px-3 py-2">출석</span>
+    <span class="badge bg-warning text-dark px-3 py-2">지각</span>
+    <span class="badge bg-danger px-3 py-2">결석</span>
+    <span class="badge bg-orange text-white px-3 py-2">조퇴</span>
+    <span class="badge bg-info text-white px-3 py-2">출석인정</span>
+    <span class="text-muted small align-self-center">'신청' = 신청했으나 출결 기록 미처리</span>
+    <span class="text-muted small align-self-center">'-' = 해당 교시 신청 없음</span>
+</div>
+{% endblock %}

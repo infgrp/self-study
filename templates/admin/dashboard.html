@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}관리자 대시보드{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">관리자 대시보드</h2>
+
+{% if pending_count > 0 %}
+<div class="alert alert-warning d-flex align-items-center" role="alert">
+    <strong>⚠ 승인 대기 중인 교사 계정이 {{ pending_count }}개 있습니다.</strong>
+    <a href="{{ url_for('admin_bp.teachers', status='pending') }}" class="btn btn-warning btn-sm ms-3">
+        바로 승인하기
+    </a>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card text-center border-primary">
+            <div class="card-body">
+                <h5 class="card-title text-primary">전체 학생</h5>
+                <p class="display-4 fw-bold">{{ total_students }}</p>
+                <p class="text-muted">명</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center border-success">
+            <div class="card-body">
+                <h5 class="card-title text-success">승인된 교사</h5>
+                <p class="display-4 fw-bold">{{ total_teachers - pending_count }}</p>
+                <p class="text-muted">명</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center {% if pending_count > 0 %}border-warning{% else %}border-secondary{% endif %}">
+            <div class="card-body">
+                <h5 class="card-title {% if pending_count > 0 %}text-warning{% else %}text-secondary{% endif %}">
+                    승인 대기 교사
+                </h5>
+                <p class="display-4 fw-bold">{{ pending_count }}</p>
+                <p class="text-muted">명</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-4 d-flex flex-wrap gap-2">
+    <a href="{{ url_for('admin_bp.users') }}" class="btn btn-primary">사용자 관리</a>
+    <a href="{{ url_for('admin_bp.teachers') }}" class="btn btn-outline-primary">교사 승인 관리</a>
+    <a href="{{ url_for('admin_bp.change_password') }}" class="btn btn-outline-secondary">비밀번호 변경</a>
+    <a href="{{ url_for('admin_bp.restore') }}" class="btn btn-outline-success">
+        📂 백업 / 복원
+    </a>
+    <a href="{{ url_for('admin_bp.new_year') }}" class="btn btn-outline-danger ms-auto">
+        새 학년도 초기화
+    </a>
+</div>
+
+<!-- 빠른 DB 백업 카드 -->
+<div class="card border-success mt-4">
+    <div class="card-header bg-success text-white fw-bold">💾 시스템 업데이트 전 DB 백업</div>
+    <div class="card-body">
+        <p class="mb-2 small">
+            코드 업데이트나 서버 이전 전에 <strong>DB 파일을 통째로 백업</strong>하세요.
+            모든 사용자·출결·신청·학습 기록·자습실 정보가 완전히 보존됩니다.
+        </p>
+        <div class="alert alert-warning py-2 small mb-3">
+            ⚠ <strong>주의:</strong> <code>reset_db.py</code>를 실행하면 자습실 목록·배정 포함 <u>모든 데이터가 삭제</u>됩니다.<br>
+            반드시 <strong>아래 백업을 먼저</strong> 받은 후 실행하세요.
+            (<code>reset_db.py</code>는 자동으로 백업 파일을 생성하지만, 수동 백업을 권장합니다.)
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{{ url_for('admin_bp.db_backup') }}" class="btn btn-success">
+                ⬇ DB 파일 백업 (.db)
+            </a>
+            <a href="{{ url_for('admin_bp.new_year_backup') }}" class="btn btn-outline-success">
+                ⬇ Excel 백업 (.xlsx)
+            </a>
+        </div>
+        <p class="text-muted small mt-2 mb-0">
+            업데이트 후 복원: 관리자 페이지 → <a href="{{ url_for('admin_bp.restore') }}">백업/복원</a>에서 위 파일로 복원하세요.
+        </p>
+    </div>
+</div>
+{% endblock %}

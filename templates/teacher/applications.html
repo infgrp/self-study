@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}신청 현황 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">자습 신청 현황</h2>
+
+<!-- 날짜/필터 선택 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" id="filterForm" class="row g-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label">날짜</label>
+                <input type="date" name="date" class="form-control"
+                       value="{{ view_date.isoformat() }}" id="dateInput">
+            </div>
+            <div class="col-auto">
+                <label class="form-label">학년</label>
+                <select name="grade" class="form-select" id="gradeSelect">
+                    <option value="">전체</option>
+                    {% for g in range(1, 4) %}
+                    <option value="{{ g }}" {{ 'selected' if grade_filter == g }}>{{ g }}학년</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">자습 공간</label>
+                <select name="room" class="form-select" id="roomSelect">
+                    <option value="">전체</option>
+                    {% for room in study_rooms %}
+                    <option value="{{ room.id }}" {{ 'selected' if room_filter == room.id }}>{{ room.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">조회</button>
+            </div>
+            <div class="col-auto ms-3">
+                <span class="badge bg-{{ 'warning text-dark' if day_type == 'saturday' else ('danger' if day_type == 'holiday' else ('secondary' if day_type == 'sunday' else 'success')) }} fs-6">
+                    {{ day_type_label }}
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 신청 통계 -->
+{% if period_times %}
+<div class="card mb-3">
+    <div class="card-header bg-info text-white">
+        {{ view_date.strftime('%Y년 %m월 %d일') }} 교시별 신청 현황
+    </div>
+    <div class="card-body py-2">
+        <div class="row">
+            {% for period, times in period_times.items() %}
+            <div class="col-auto">
+                <span class="badge bg-primary fs-6">
+                    {{ period }}교시 ({{ times[0] }}~{{ times[1] }}): {{ period_stats.get(period, 0) }}명
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 신청 현황 테이블 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>{{ view_date.strftime('%Y년 %m월 %d일') }} 신청 현황</span>
+        <small class="text-muted">총 {{ students|length }}명</small>
+    </div>
+    <div class="card-body">
+        {% if students and period_times %}
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width: 80px;">이름</th>
+                        <th style="min-width: 70px;">학년/반</th>
+                        <th style="min-width: 80px;">자습 공간</th>
+                        {% for period, times in period_times.items() %}
+                        <th style="min-width: 90px;">
+                            {{ period }}교시<br>
+                            <small class="text-muted">{{ times[0] }}~{{ times[1] }}</small>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td>{{ s.name }}</td>
+                        <td>{{ s.grade }}-{{ s.class_num }}</td>
+                        <td>
+                            {% set room_id = student_room_map.get(s.id) %}
+                            {% if room_id %}
+                                {% for room in study_rooms if room.id == room_id %}
+                                    <small class="badge bg-info">{{ room.name }}</small>
+                                {% endfor %}
+                            {% else %}
+                                <small class="text-muted">미배정</small>
+                            {% endif %}
+                        </td>
+                        {% for period in period_times.keys() %}
+                        <td>
+                            {% if (s.id, period) in app_data %}
+                                <span class="badge bg-success">신청</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif not period_times %}
+        <div class="text-center py-4">
+            <p class="text-muted mb-3">해당 일자({{ day_type_label }})에 자습 시간이 설정되어 있지 않습니다.</p>
+            <a href="{{ url_for('teacher.settings') }}" class="btn btn-primary">자습 시간 설정하기</a>
+        </div>
+        {% else %}
+        <p class="text-muted text-center">학생이 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('dateInput').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+document.getElementById('gradeSelect').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+document.getElementById('roomSelect').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+</script>
+{% endblock %}

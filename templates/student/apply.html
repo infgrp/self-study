@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}자습 신청 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">자습 신청</h2>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <a href="{{ url_for('student.apply', year=prev_year, month=prev_month) }}" class="btn btn-sm btn-outline-secondary">&lt; 이전</a>
+        <h5 class="mb-0">{{ year }}년 {{ month }}월</h5>
+        <a href="{{ url_for('student.apply', year=next_year, month=next_month) }}" class="btn btn-sm btn-outline-secondary">다음 &gt;</a>
+    </div>
+    <div class="card-body">
+        <form method="POST">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+
+            <div class="table-responsive">
+                <table class="table table-bordered text-center" style="table-layout: fixed;">
+                    <thead class="table-primary">
+                        <tr>
+                            {% for day in day_names[:7] %}
+                            <th style="width: 14.28%;" class="{{ 'text-primary' if loop.index0 == 5 else ('text-danger' if loop.index0 == 6 else '') }}">{{ day }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(day_idx=0, week_num=1) %}
+                        <!-- 첫 주 빈 칸 -->
+                        {% if first_weekday > 0 %}
+                        <tr>
+                            {% for i in range(first_weekday) %}
+                            <td class="bg-light" data-week="1"></td>
+                            {% endfor %}
+                        {% endif %}
+
+                        {% for cal_day in cal_days %}
+                            {% if cal_day.weekday == 0 and ns.day_idx > 0 %}
+                            {% set ns.week_num = ns.week_num + 1 %}
+                            </tr><tr>
+                            {% endif %}
+
+                            <td class="p-1 {{ 'bg-light' if cal_day.day_type == 'sunday' else '' }}"
+                                data-week="{{ ns.week_num }}"
+                                style="vertical-align: top; min-height: 100px;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <strong class="{{ 'text-primary' if cal_day.weekday == 5 else ('text-danger' if cal_day.weekday == 6 or cal_day.day_type == 'holiday' else '') }}">
+                                        {{ cal_day.day }}
+                                    </strong>
+                                    {% if cal_day.holiday_name %}
+                                    <small class="badge bg-danger">{{ cal_day.holiday_name }}</small>
+                                    {% elif cal_day.weekday == 5 %}
+                                    <small class="badge bg-primary">토</small>
+                                    {% endif %}
+                                </div>
+
+                                {% if cal_day.day_type != 'sunday' and cal_day.periods %}
+                                <!-- 일별 전체 선택 체크박스 -->
+                                <div class="form-check mb-1 border-bottom pb-1">
+                                    <input type="checkbox" class="form-check-input day-select"
+                                           id="day_{{ cal_day.day }}"
+                                           data-day="{{ cal_day.day }}"
+                                           onchange="toggleDay({{ cal_day.day }})">
+                                    <label class="form-check-label small fw-bold text-primary" for="day_{{ cal_day.day }}">
+                                        전체
+                                    </label>
+                                </div>
+                                <div class="small">
+                                    {% for period, times in cal_day.periods.items() %}
+                                    <div class="form-check form-check-inline p-0 m-0">
+                                        <input type="checkbox" class="form-check-input period-cb period-day-{{ cal_day.day }} period-num-{{ period }}"
+                                               name="apply_{{ cal_day.day }}_{{ period }}"
+                                               id="apply_{{ cal_day.day }}_{{ period }}"
+                                               data-day="{{ cal_day.day }}"
+                                               data-period="{{ period }}"
+                                               onchange="updateDayCheckbox({{ cal_day.day }})"
+                                               {{ 'checked' if (cal_day.date, period) in applied_set }}>
+                                        <label class="form-check-label small" for="apply_{{ cal_day.day }}_{{ period }}">
+                                            {{ period }}교시
+                                        </label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% elif cal_day.day_type == 'sunday' %}
+                                <small class="text-muted">휴일</small>
+                                {% else %}
+                                <small class="text-muted">자습없음</small>
+                                {% endif %}
+                            </td>
+
+                            {% set ns.day_idx = ns.day_idx + 1 %}
+                        {% endfor %}
+
+                        <!-- 마지막 주 빈 칸 -->
+                        {% set last_weekday = cal_days[-1].weekday %}
+                        {% if last_weekday < 6 %}
+                            {% for i in range(6 - last_weekday) %}
+                            <td class="bg-light" data-week="{{ ns.week_num }}"></td>
+                            {% endfor %}
+                        {% endif %}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-3">
+                <!-- 월 전체 / 전체 해제 -->
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <button type="button" class="btn btn-success" onclick="selectAll()">
+                        📅 월 전체 신청
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="deselectAll()">
+                        전체 해제
+                    </button>
+                    <span class="text-muted small ms-1">|</span>
+                    <span class="text-muted small fw-bold">주별 신청:</span>
+                    <div id="week-btns" class="d-flex flex-wrap gap-1"></div>
+                </div>
+                <!-- 교시별 일괄 신청 -->
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <span class="text-muted small fw-bold">교시별 신청:</span>
+                    {% for p in all_available_periods %}
+                    <button type="button" class="btn btn-sm btn-outline-info" onclick="togglePeriod({{ p }})">
+                        {{ p }}교시 전체
+                    </button>
+                    {% endfor %}
+                </div>
+                <!-- 저장 -->
+                <div class="d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary btn-lg">신청 저장</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 자습 시간표 안내 -->
+<div class="card mt-3">
+    <div class="card-header">자습 시간표</div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4">
+                <h6 class="text-primary">평일</h6>
+                <ul class="list-unstyled small mb-0">
+                    {% for period, times in period_times_weekday.items() %}
+                    <li>{{ period }}교시: {{ times[0] }} ~ {{ times[1] }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="col-md-4">
+                <h6 class="text-primary">토요일</h6>
+                <ul class="list-unstyled small mb-0">
+                    {% for period, times in period_times_saturday.items() %}
+                    <li>{{ period }}교시: {{ times[0] }} ~ {{ times[1] }}</li>
+                    {% else %}
+                    <li class="text-muted">자습 없음</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="col-md-4">
+                <h6 class="text-danger">공휴일</h6>
+                <ul class="list-unstyled small mb-0">
+                    {% for period, times in period_times_holiday.items() %}
+                    <li>{{ period }}교시: {{ times[0] }} ~ {{ times[1] }}</li>
+                    {% else %}
+                    <li class="text-muted">자습 없음</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">신청 안내</div>
+    <div class="card-body">
+        <ul class="mb-0">
+            <li>원하는 날짜와 교시를 선택하여 자습을 신청하세요.</li>
+            <li>일요일은 자습이 없습니다.</li>
+            <li>공휴일과 토요일은 별도의 자습 시간이 적용됩니다.</li>
+            <li>신청 후에도 수정이 가능합니다.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function selectAll() {
+    document.querySelectorAll('input.period-cb').forEach(cb => cb.checked = true);
+    document.querySelectorAll('.day-select').forEach(cb => { cb.checked = true; cb.indeterminate = false; });
+}
+function deselectAll() {
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+}
+
+// 일별 전체 선택/해제
+function toggleDay(day) {
+    const dayCheckbox = document.getElementById('day_' + day);
+    document.querySelectorAll('.period-day-' + day).forEach(cb => cb.checked = dayCheckbox.checked);
+}
+
+// 개별 교시 체크박스 변경 시 일별 전체 체크박스 상태 업데이트
+function updateDayCheckbox(day) {
+    const dayCheckbox = document.getElementById('day_' + day);
+    const cbs = Array.from(document.querySelectorAll('.period-day-' + day));
+    const allChecked  = cbs.every(cb => cb.checked);
+    const someChecked = cbs.some(cb => cb.checked);
+    dayCheckbox.checked       = allChecked;
+    dayCheckbox.indeterminate = someChecked && !allChecked;
+}
+
+// 교시별 일괄 신청/해제 (토글)
+function togglePeriod(p) {
+    const cbs = Array.from(document.querySelectorAll('.period-num-' + p));
+    const allChecked = cbs.every(cb => cb.checked);
+    cbs.forEach(cb => cb.checked = !allChecked);
+    // 일별 체크박스 상태 갱신
+    const days = new Set(cbs.map(cb => cb.dataset.day));
+    days.forEach(day => updateDayCheckbox(day));
+}
+
+// 주 단위 신청/해제 (토글)
+function toggleWeek(w) {
+    const cbs = [];
+    document.querySelectorAll(`td[data-week="${w}"]`).forEach(td =>
+        td.querySelectorAll('input.period-cb').forEach(cb => cbs.push(cb))
+    );
+    const allChecked = cbs.every(cb => cb.checked);
+    cbs.forEach(cb => cb.checked = !allChecked);
+    // 일별 체크박스 상태 갱신
+    const days = new Set(cbs.map(cb => cb.dataset.day));
+    days.forEach(day => updateDayCheckbox(day));
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    // 일별 체크박스 초기 상태 설정
+    document.querySelectorAll('.day-select').forEach(dayCb => updateDayCheckbox(dayCb.dataset.day));
+
+    // 주별 버튼 동적 생성
+    const weeks = [...new Set(
+        [...document.querySelectorAll('td[data-week]')].map(td => td.dataset.week)
+    )].sort((a, b) => +a - +b);
+
+    const container = document.getElementById('week-btns');
+    weeks.forEach(w => {
+        const btn = document.createElement('button');
+        btn.type      = 'button';
+        btn.className = 'btn btn-sm btn-outline-primary';
+        btn.textContent = w + '주';
+        btn.onclick   = () => toggleWeek(w);
+        container.appendChild(btn);
+    });
+});
+</script>
+{% endblock %}

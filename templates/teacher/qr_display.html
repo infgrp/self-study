@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}QR코드 - {{ room.name }} - 자율학습 관리{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header bg-primary text-white text-center">
+                <h4 class="mb-0">{{ room.name }} — 자습 QR코드</h4>
+            </div>
+            <div class="card-body">
+
+                <div class="row g-4 text-center">
+
+                    {# ── 입실 QR ── #}
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100">
+                            <h5 class="text-primary mb-2">📥 입실 QR</h5>
+                            <p class="text-muted small mb-3">자습 시작 시 스캔 — 출석 처리</p>
+                            <div id="qrcode-in" class="d-flex justify-content-center mb-3"></div>
+                            <div class="alert alert-primary py-2 text-start">
+                                <small>
+                                    <strong>사용 방법:</strong><br>
+                                    1. 자습 시간 중 스캔<br>
+                                    2. 해당 교시 신청자만 출석 처리<br>
+                                    3. 중복 스캔 무시
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# ── 퇴실 QR ── #}
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 border-warning">
+                            <h5 class="text-warning mb-2">📤 퇴실 QR</h5>
+                            <p class="text-muted small mb-3">자습 종료 전 퇴실 시 스캔 — 조퇴 처리</p>
+                            <div id="qrcode-out" class="d-flex justify-content-center mb-3"></div>
+                            <div class="alert alert-warning py-2 text-start">
+                                <small>
+                                    <strong>사용 방법:</strong><br>
+                                    1. 퇴실 전 스캔 (종료 전 → 조퇴)<br>
+                                    2. 종료 후 스캔은 정상 출석 유지<br>
+                                    3. 교사가 사유 확인 후 출석인정 가능
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /row -->
+
+                <hr class="my-4">
+
+                <div class="d-flex justify-content-between flex-wrap gap-2">
+                    <a href="{{ url_for('teacher.settings') }}" class="btn btn-secondary">설정으로 돌아가기</a>
+                    <form action="{{ url_for('teacher.qr_regenerate', room_id=room.id) }}" method="POST"
+                          onsubmit="return confirm('QR코드를 재생성하면 기존 QR코드(입실·퇴실 모두)가 무효화됩니다. 계속하시겠습니까?');">
+                        <button type="submit" class="btn btn-warning">QR코드 재생성</button>
+                    </form>
+                    <button onclick="window.print()" class="btn btn-primary">인쇄하기</button>
+                </div>
+
+            </div><!-- /card-body -->
+        </div>
+    </div>
+</div>
+
+<!-- 인쇄용 스타일 -->
+<style>
+@media print {
+    .navbar, .btn, hr, p.text-muted { display: none !important; }
+    .card { border: none !important; box-shadow: none !important; }
+    .card-header {
+        background: none !important;
+        color: black !important;
+        font-size: 20pt;
+        border: none !important;
+    }
+    .col-md-6 { width: 48% !important; display: inline-block; }
+    #qrcode-in, #qrcode-out { margin-top: 10px; }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 입실 QR
+    new QRCode(document.getElementById("qrcode-in"), {
+        text: "{{ qr_url }}",
+        width: 220, height: 220,
+        colorDark: "#0d6efd",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+    });
+    // 퇴실 QR
+    new QRCode(document.getElementById("qrcode-out"), {
+        text: "{{ qr_checkout_url }}",
+        width: 220, height: 220,
+        colorDark: "#fd7e14",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% block title %}출석 관리 - 자율학습 관리{% endblock %}
+
+{% macro status_badge(s) %}
+  {% if s == 'present' %}<span class="badge bg-success">출석</span>
+  {% elif s == 'late' %}<span class="badge bg-warning text-dark">지각</span>
+  {% elif s == 'absent' %}<span class="badge bg-danger">결석</span>
+  {% elif s == 'early_leave' %}<span class="badge bg-orange text-white">조퇴</span>
+  {% elif s == 'approved_leave' %}<span class="badge bg-info text-white">출석인정</span>
+  {% else %}<span class="badge bg-secondary">{{ s }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<h2 class="mb-4">출석 관리</h2>
+
+<!-- 날짜/학년/일자유형 선택 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" id="filterForm" class="row g-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label">날짜</label>
+                <input type="date" name="date" class="form-control"
+                       value="{{ view_date.isoformat() }}" id="dateInput">
+            </div>
+            <div class="col-auto">
+                <label class="form-label">학년</label>
+                <select name="grade" class="form-select" id="gradeSelect">
+                    <option value="">전체</option>
+                    {% for g in range(1, 4) %}
+                    <option value="{{ g }}" {{ 'selected' if grade_filter == g }}>{{ g }}학년</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">자습 공간</label>
+                <select name="room" class="form-select" id="roomSelect">
+                    <option value="">전체</option>
+                    {% for room in study_rooms %}
+                    <option value="{{ room.id }}" {{ 'selected' if room_filter == room.id }}>{{ room.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" name="is_saturday" id="isSaturday"
+                           {{ 'checked' if is_saturday }} onchange="this.form.submit()">
+                    <label class="form-check-label" for="isSaturday">토요일</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" name="is_holiday" id="isHoliday"
+                           {{ 'checked' if is_holiday }} onchange="this.form.submit()">
+                    <label class="form-check-label" for="isHoliday">공휴일</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">조회</button>
+            </div>
+            <div class="col-auto ms-3">
+                <span class="badge bg-{{ 'warning text-dark' if day_type == 'saturday' else ('danger' if day_type == 'holiday' else 'success') }} fs-6">
+                    {{ day_type_label }}
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 자습 시간 정보 -->
+<div class="card mb-3">
+    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+        <span>{{ view_date.strftime('%Y년 %m월 %d일') }} 자습 시간 ({{ day_type_label }})</span>
+        {% if study_rooms %}
+        <small>자습 공간: {{ study_rooms|map(attribute='name')|join(', ') }}</small>
+        {% endif %}
+    </div>
+    <div class="card-body py-2">
+        {% if period_times %}
+        <div class="row">
+            {% for period, times in period_times.items() %}
+            <div class="col-auto">
+                <span class="badge bg-secondary fs-6">{{ period }}교시: {{ times[0] }} ~ {{ times[1] }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">자습 시간이 설정되어 있지 않습니다.
+            <a href="{{ url_for('teacher.settings') }}">설정에서 자습 시간을 등록하세요.</a>
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 출석 현황 테이블 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>{{ view_date.strftime('%Y년 %m월 %d일') }} 출석 현황</span>
+        <div class="d-flex gap-2 align-items-center">
+            {% if period_times %}
+            <small class="text-muted">총 {{ students|length }}명 / {{ period_times|length }}교시</small>
+            <a href="{{ url_for('teacher.export_attendance', date=view_date.isoformat(),
+                                grade=grade_filter or '', room=room_filter or '',
+                                is_saturday='on' if is_saturday else '',
+                                is_holiday='on' if is_holiday else '') }}"
+               class="btn btn-sm btn-outline-success">📥 Excel</a>
+            <form method="POST" action="{{ url_for('teacher.attendance_auto_process') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+                <input type="hidden" name="day_type" value="{{ day_type }}">
+                <input type="hidden" name="grade" value="{{ grade_filter or '' }}">
+                <input type="hidden" name="room" value="{{ room_filter or '' }}">
+                <input type="hidden" name="is_saturday" value="{{ 'on' if is_saturday else '' }}">
+                <input type="hidden" name="is_holiday" value="{{ 'on' if is_holiday else '' }}">
+                <button type="submit" class="btn btn-sm btn-outline-warning"
+                        onclick="return confirm('신청자 중 미처리 학생을 자동 지각/결석 처리합니까?')">
+                    ⚡ 자동처리
+                </button>
+            </form>
+            <form method="POST" action="{{ url_for('teacher.after_school_attendance') }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+                <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                <input type="hidden" name="is_saturday" value="{{ 'on' if is_saturday else '' }}">
+                <input type="hidden" name="is_holiday" value="{{ 'on' if is_holiday else '' }}">
+                <button type="submit" class="btn btn-sm btn-outline-info"
+                        onclick="return confirm('오늘({{ view_date.isoformat() }}) 방과후 수업 등록 학생을 출석 처리합니까?')">
+                    📚 방과후 자동출석
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        {% if students and period_times %}
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width: 80px;">이름</th>
+                        <th style="min-width: 70px;">학년/반</th>
+                        <th style="min-width: 80px;">자습 공간</th>
+                        {% for period, times in period_times.items() %}
+                        <th style="min-width: 90px;">
+                            {{ period }}교시<br>
+                            <small class="text-muted">{{ times[0] }}~{{ times[1] }}</small>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td>{{ s.name }}</td>
+                        <td>{{ s.grade }}-{{ s.class_num }}</td>
+                        <td>
+                            {% set room_id = student_room_map.get(s.id) %}
+                            {% if room_id %}
+                                {% for room in study_rooms if room.id == room_id %}
+                                    <small class="badge bg-info">{{ room.name }}</small>
+                                {% endfor %}
+                            {% else %}
+                                <small class="text-muted">미배정</small>
+                            {% endif %}
+                        </td>
+                        {% for period in period_times.keys() %}
+                        <td>
+                            {% set att = att_data.get((s.id, period)) %}
+                            {% set app = app_data.get((s.id, period)) if app_data else None %}
+                            {% if app or att %}
+
+                            {# ── 상태 드롭다운 ── #}
+                            <form method="POST" action="{{ url_for('teacher.attendance_update') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="user_id" value="{{ s.id }}">
+                                <input type="hidden" name="period" value="{{ period }}">
+                                <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+                                <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                                <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                                <input type="hidden" name="is_saturday" value="{{ 'on' if is_saturday else '' }}">
+                                <input type="hidden" name="is_holiday" value="{{ 'on' if is_holiday else '' }}">
+                                <select name="status"
+                                        class="form-select form-select-sm
+                                            {% if att %}
+                                                {% if att.status == 'present' %}bg-success text-white
+                                                {% elif att.status == 'late' %}bg-warning
+                                                {% elif att.status == 'absent' %}bg-danger text-white
+                                                {% elif att.status == 'early_leave' %}bg-orange text-white
+                                                {% elif att.status == 'approved_leave' %}bg-info text-white
+                                                {% endif %}
+                                            {% endif %}"
+                                        onchange="handleStatusChange(this, '{{ s.id }}', '{{ period }}')"
+                                        style="width: 90px;">
+                                    <option value="present"        {{ 'selected' if att and att.status == 'present' }}>출석</option>
+                                    <option value="late"           {{ 'selected' if att and att.status == 'late' }}>지각</option>
+                                    <option value="absent"         {{ 'selected' if att and att.status == 'absent' }}
+                                                                   {% if not att %}selected{% endif %}>결석</option>
+                                    <option value="early_leave"    {{ 'selected' if att and att.status == 'early_leave' }}>조퇴</option>
+                                    <option value="approved_leave" {{ 'selected' if att and att.status == 'approved_leave' }}>출석인정</option>
+                                </select>
+                            </form>
+
+                            {# ── 입·퇴실 시각 ── #}
+                            {% if att and att.checked_at %}
+                            <br><small class="text-muted">입실 {{ att.checked_at.strftime('%H:%M') }}</small>
+                            {% endif %}
+                            {% if att and att.checked_out_at %}
+                            <br><small class="text-{{ 'warning' if att.status == 'early_leave' else 'muted' }}">
+                                퇴실 {{ att.checked_out_at.strftime('%H:%M') }}
+                                {% if att.study_minutes is not none %}({{ att.study_minutes }}분){% endif %}
+                            </small>
+                            {% endif %}
+
+                            {# ── 출석인정 처리 폼 (조퇴·출석인정 모두 표시) ── #}
+                            {% if att and att.status in ('early_leave', 'approved_leave') %}
+                            <div class="mt-1">
+                                <form method="POST" action="{{ url_for('teacher.attendance_update') }}" class="d-flex gap-1 align-items-center">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="user_id" value="{{ s.id }}">
+                                    <input type="hidden" name="period" value="{{ period }}">
+                                    <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+                                    <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                                    <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                                    <input type="hidden" name="is_saturday" value="{{ 'on' if is_saturday else '' }}">
+                                    <input type="hidden" name="is_holiday" value="{{ 'on' if is_holiday else '' }}">
+                                    <input type="hidden" name="status" value="approved_leave">
+                                    <input type="text" name="early_leave_note"
+                                           class="form-control form-control-sm"
+                                           placeholder="사유 입력"
+                                           value="{{ att.early_leave_note or '' }}"
+                                           style="width:90px; font-size:0.72rem;">
+                                    <button type="submit" class="btn btn-sm text-white text-nowrap
+                                        {% if att.status == 'approved_leave' %}btn-secondary{% else %}btn-info{% endif %}"
+                                            style="font-size:0.72rem; padding:2px 6px;">
+                                        {% if att.status == 'approved_leave' %}사유수정{% else %}출석인정{% endif %}
+                                    </button>
+                                </form>
+                            </div>
+                            {% endif %}
+
+                            {# ── 기타 상태에서 출석인정으로 변경할 때 사유 입력 폼 ── #}
+                            {% if att and att.status not in ('early_leave', 'approved_leave') and att.status in ('present', 'late', 'absent') %}
+                            <div class="mt-1" id="note-form-{{ s.id }}-{{ period }}" style="display:none;">
+                                <form method="POST" action="{{ url_for('teacher.attendance_update') }}" class="d-flex gap-1 align-items-center">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="user_id" value="{{ s.id }}">
+                                    <input type="hidden" name="period" value="{{ period }}">
+                                    <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
+                                    <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                                    <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                                    <input type="hidden" name="is_saturday" value="{{ 'on' if is_saturday else '' }}">
+                                    <input type="hidden" name="is_holiday" value="{{ 'on' if is_holiday else '' }}">
+                                    <input type="hidden" name="status" value="approved_leave">
+                                    <input type="text" name="early_leave_note"
+                                           class="form-control form-control-sm"
+                                           placeholder="사유 입력"
+                                           style="width:90px; font-size:0.72rem;">
+                                    <button type="submit" class="btn btn-sm btn-info text-white text-nowrap"
+                                            style="font-size:0.72rem; padding:2px 6px;">
+                                        출석인정
+                                    </button>
+                                </form>
+                            </div>
+                            {% endif %}
+
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif not period_times %}
+        <div class="text-center py-4">
+            <p class="text-muted mb-3">해당 일자 유형({{ day_type_label }})에 자습 시간이 설정되어 있지 않습니다.</p>
+            <a href="{{ url_for('teacher.settings') }}" class="btn btn-primary">자습 시간 설정하기</a>
+        </div>
+        {% else %}
+        <p class="text-muted text-center">학생이 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 출결 수정 이력 (토글) -->
+<div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>출결 수정 이력</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#attLog">펼치기</button>
+    </div>
+    <div class="collapse" id="attLog">
+        <div class="card-body p-0">
+            {% set logs = att_logs %}
+            {% if logs %}
+            <table class="table table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>시각</th><th>학생</th><th>교시</th>
+                        <th>변경 전</th><th>변경 후</th><th>처리자</th><th>비고</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td><small>{{ log.changed_at.strftime('%H:%M:%S') }}</small></td>
+                        <td>{{ log.attendance.user.name }}</td>
+                        <td>{{ log.attendance.period }}교시</td>
+                        <td>
+                            {% if log.old_status %}{{ status_badge(log.old_status) }}{% else %}-{% endif %}
+                        </td>
+                        <td>{{ status_badge(log.new_status) }}</td>
+                        <td>{{ log.changed_by_user.name if log.changed_by_user else '-' }}</td>
+                        <td><small class="text-muted">{{ log.note or '' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted text-center py-3 mb-0">이날 수정 이력이 없습니다.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 토요일/공휴일 체크박스 상호 배타적 처리
+document.getElementById('isSaturday').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('isHoliday').checked = false;
+    }
+});
+document.getElementById('isHoliday').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('isSaturday').checked = false;
+    }
+});
+
+// 날짜 변경 시 자동 제출
+document.getElementById('dateInput').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+// 학년 변경 시 자동 제출
+document.getElementById('gradeSelect').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+// 자습 공간 변경 시 자동 제출
+document.getElementById('roomSelect').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+// 출석 상태 드롭다운 변경 처리
+// approved_leave 선택 시: 현재 상태가 early_leave/approved_leave가 아니면
+// 아래 숨겨진 사유 입력 폼을 펼치고 제출은 미룬다.
+function handleStatusChange(select, userId, period) {
+    if (select.value === 'approved_leave') {
+        const noteForm = document.getElementById('note-form-' + userId + '-' + period);
+        if (noteForm) {
+            // 사유 입력 폼이 있으면 먼저 표시, 폼 제출은 하지 않음
+            noteForm.style.display = 'block';
+            noteForm.querySelector('input[type="text"]').focus();
+            // select를 원래 값으로 되돌려 표시 (실제 변경은 note form 제출로)
+            select.value = select.dataset.prev || 'absent';
+            return;
+        }
+    }
+    // 그 외 상태: 기존처럼 즉시 제출
+    select.form.submit();
+}
+
+// 드롭다운 포커스 시 현재 값 저장 (되돌리기용)
+document.querySelectorAll('select[name="status"]').forEach(function(sel) {
+    sel.addEventListener('focus', function() {
+        this.dataset.prev = this.value;
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}마이페이지{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <!-- 내 정보 -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">내 정보</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <th class="text-muted" style="width:30%">이름</th>
+                        <td>{{ current_user.name }}</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">아이디</th>
+                        <td>{{ current_user.username }}</td>
+                    </tr>
+                    <tr>
+                        <th class="text-muted">담당 학년</th>
+                        <td>{{ current_user.assigned_grade }}학년</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- 비밀번호 변경 -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">비밀번호 변경</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label class="form-label">현재 비밀번호</label>
+                        <input type="password" name="current_password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">새 비밀번호</label>
+                        <input type="password" name="new_password" class="form-control" required>
+                        <div class="form-text">8자 이상, 영문 + 숫자 조합</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">새 비밀번호 확인</label>
+                        <input type="password" name="confirm_password" class="form-control" required>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-secondary">변경하기</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="{{ url_for('teacher.dashboard') }}" class="text-secondary">← 대시보드로 돌아가기</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

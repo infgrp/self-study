@@ -1,0 +1,23 @@
+# 운영 데이터 — 절대 커밋하지 않음
+instance/
+logs/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# LaTeX 빌드 산출물
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# 임시 압축 파일
+*.zip
+
+# IDE
+.vscode/
+.idea/

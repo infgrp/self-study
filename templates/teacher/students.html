@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}학생 관리 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">학생 관리</h2>
+    {% if assigned_grade %}
+    <span class="badge bg-primary fs-6">{{ assigned_grade }}학년 담당</span>
+    {% else %}
+    <span class="badge bg-secondary fs-6">전체 학년 담당</span>
+    {% endif %}
+</div>
+
+{% set days = ['월', '화', '수', '목', '금'] %}
+
+<!-- 필터 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" id="filterForm" class="row g-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label">학년</label>
+                <select name="grade" class="form-select" onchange="this.form.submit()">
+                    <option value="">전체</option>
+                    {% for g in range(1, 4) %}
+                    <option value="{{ g }}" {{ 'selected' if grade_filter == g }}>{{ g }}학년</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">반</label>
+                <select name="class_num" class="form-select" onchange="this.form.submit()">
+                    <option value="">전체</option>
+                    {% for c in range(1, 11) %}
+                    <option value="{{ c }}" {{ 'selected' if class_filter == c }}>{{ c }}반</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">자습 공간</label>
+                <select name="room" class="form-select" onchange="this.form.submit()">
+                    <option value="">전체</option>
+                    <option value="0" {{ 'selected' if room_filter == 0 }}>미배정</option>
+                    {% for room in study_rooms %}
+                    <option value="{{ room.id }}" {{ 'selected' if room_filter == room.id }}>{{ room.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">검색</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 학생 목록 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>학생 목록</span>
+        <small class="text-muted">총 {{ students|length }}명</small>
+    </div>
+    <div class="card-body">
+        {% if students %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>이름</th>
+                        <th>학번</th>
+                        <th>성별</th>
+                        <th>학년</th>
+                        <th>반</th>
+                        <th>아이디</th>
+                        <th>좌석</th>
+                        <th>리포트</th>
+                        <th style="min-width: 200px;">자습 공간</th>
+                        <th style="min-width: 120px;">방과후 수업</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td>{{ s.name }}</td>
+                        <td><small class="text-muted">{{ s.student_id or '-' }}</small></td>
+                        <td>
+                            {% if s.gender == 'M' %}
+                            <span class="badge bg-primary">남</span>
+                            {% elif s.gender == 'F' %}
+                            <span class="badge bg-danger">여</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ s.grade }}학년</td>
+                        <td>{{ s.class_num }}반</td>
+                        <td><small class="text-muted">{{ s.username }}</small></td>
+                        <td>
+                            {% set seat = student_seat_map.get(s.id) %}
+                            {% if seat %}
+                            <span class="badge bg-secondary">{{ seat }}번</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('teacher.student_report', user_id=s.id) }}"
+                               class="btn btn-sm btn-outline-info">리포트</a>
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1 flex-wrap">
+                                <form method="POST" action="{{ url_for('teacher.assign_room') }}" class="d-flex gap-1">
+                                    <input type="hidden" name="user_id" value="{{ s.id }}">
+                                    <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                                    <input type="hidden" name="class_filter" value="{{ class_filter or '' }}">
+                                    <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                                    <select name="room_id" class="form-select form-select-sm" style="width: 130px;">
+                                        <option value="">미배정</option>
+                                        {% for room in study_rooms %}
+                                        {% if room.is_active %}
+                                        <option value="{{ room.id }}"
+                                                {{ 'selected' if student_room_map.get(s.id) == room.id }}>
+                                            {{ room.name }}
+                                        </option>
+                                        {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">저장</button>
+                                </form>
+                                {% if student_room_map.get(s.id) %}
+                                <form method="POST" action="{{ url_for('teacher.unassign_room') }}">
+                                    <input type="hidden" name="user_id" value="{{ s.id }}">
+                                    <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                                    <input type="hidden" name="class_num_filter" value="{{ class_filter or '' }}">
+                                    <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('{{ s.name }} 학생의 배정을 해제합니까?')">
+                                        해제
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                        {# ── 방과후 수업 ── #}
+                        <td class="text-center">
+                            {% set sch = schedule_map.get(s.id) or [] %}
+                            {% if sch %}
+                            <small class="text-success d-block mb-1">
+                                {% for day_i, p in sch %}{{ days[day_i] }}/{{ p }}교시 {% endfor %}
+                            </small>
+                            {% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    onclick="openSchModal({{ s.id }}, '{{ s.name }}')">
+                                {% if sch %}수정{% else %}등록{% endif %}
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted text-center">등록된 학생이 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 공간별 현황 요약 -->
+{% if study_rooms %}
+<div class="card mt-4">
+    <div class="card-header">자습 공간별 배정 현황</div>
+    <div class="card-body">
+        <div class="row">
+            {% for room in study_rooms %}
+            {% if room.is_active %}
+            {% set cnt = namespace(total=0, male=0, female=0) %}
+            {% for s in students %}
+                {% if student_room_map.get(s.id) == room.id %}
+                    {% set cnt.total = cnt.total + 1 %}
+                    {% if s.gender == 'M' %}{% set cnt.male = cnt.male + 1 %}{% endif %}
+                    {% if s.gender == 'F' %}{% set cnt.female = cnt.female + 1 %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            <div class="col-md-3 col-sm-6 mb-3">
+                <div class="card border-{{ 'success' if cnt.total < room.capacity or room.capacity == 0 else 'danger' }}">
+                    <div class="card-body text-center py-2">
+                        <h6 class="mb-1">{{ room.name }}</h6>
+                        <span class="fs-4">{{ cnt.total }}</span>
+                        {% if room.capacity > 0 %}
+                        <span class="text-muted">/ {{ room.capacity }}명</span>
+                        {% else %}
+                        <span class="text-muted">명</span>
+                        {% endif %}
+                        <div class="mt-1">
+                            <small class="text-primary">남 {{ cnt.male }}</small>
+                            {% if room.male_capacity > 0 %}<small class="text-muted">/{{ room.male_capacity }}</small>{% endif %}
+                            <small class="ms-2 text-danger">여 {{ cnt.female }}</small>
+                            {% if room.female_capacity > 0 %}<small class="text-muted">/{{ room.female_capacity }}</small>{% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 방과후 수업 등록 모달 -->
+<div class="modal fade" id="schModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">방과후 수업 등록 — <span id="schStudentName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('teacher.save_schedule') }}" id="schForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="user_id" id="schUserId">
+                <input type="hidden" name="grade_filter" value="{{ grade_filter or '' }}">
+                <input type="hidden" name="class_num_filter" value="{{ class_filter or '' }}">
+                <input type="hidden" name="room_filter" value="{{ room_filter or '' }}">
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">참여하는 요일과 교시를 체크하세요. 저장 시 기존 일정은 교체됩니다.</p>
+                    <div class="table-responsive">
+                        <table class="table table-bordered text-center mb-0" id="schGrid">
+                            <thead class="table-light">
+                                <tr>
+                                    <th></th>
+                                    {% for day in days %}
+                                    <th>{{ day }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in weekday_periods %}
+                                <tr>
+                                    <th class="table-light">{{ p }}교시</th>
+                                    {% for d in range(5) %}
+                                    <td>
+                                        <input type="checkbox" name="sch" value="{{ d }}_{{ p }}"
+                                               id="sch_{{ d }}_{{ p }}" class="form-check-input sch-cb"
+                                               style="width:1.2em; height:1.2em;">
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2 d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllSch()">전체 선택</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearAllSch()">전체 해제</button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{# 학생별 스케줄 데이터를 JS에 전달 #}
+<script>
+const SCHEDULE_MAP = {
+    {% for s in students %}
+    {{ s.id }}: [{% for day_i, p in schedule_map.get(s.id) or [] %}"{{ day_i }}_{{ p }}"{% if not loop.last %},{% endif %}{% endfor %}]{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+function openSchModal(userId, name) {
+    document.getElementById('schUserId').value = userId;
+    document.getElementById('schStudentName').textContent = name;
+    // 모든 체크박스 초기화
+    document.querySelectorAll('.sch-cb').forEach(cb => cb.checked = false);
+    // 해당 학생 스케줄 체크
+    const entries = SCHEDULE_MAP[userId] || [];
+    entries.forEach(v => {
+        const cb = document.getElementById('sch_' + v);
+        if (cb) cb.checked = true;
+    });
+    new bootstrap.Modal(document.getElementById('schModal')).show();
+}
+
+function selectAllSch() {
+    document.querySelectorAll('.sch-cb').forEach(cb => cb.checked = true);
+}
+function clearAllSch() {
+    document.querySelectorAll('.sch-cb').forEach(cb => cb.checked = false);
+}
+</script>
+{% endblock %}

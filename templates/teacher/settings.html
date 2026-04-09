@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+{% block title %}자습 시간 설정 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">자습 시간 설정</h2>
+
+<div class="row">
+    <!-- 자습 시간 설정 -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white p-0 pt-2 ps-3">
+                <ul class="nav nav-tabs card-header-tabs" id="periodTabs" role="tablist">
+                    {% for code, label in [('mon','월'),('tue','화'),('wed','수'),('thu','목'),('fri','금')] %}
+                    <li class="nav-item">
+                        <button class="nav-link {{ 'active' if loop.first }} text-dark"
+                                id="{{ code }}-tab" data-bs-toggle="tab"
+                                data-bs-target="#tab-{{ code }}" type="button">
+                            {{ label }}
+                            {% if all_settings[code] %}
+                            <span class="badge bg-success ms-1" title="개별 설정 있음">●</span>
+                            {% endif %}
+                        </button>
+                    </li>
+                    {% endfor %}
+                    <li class="nav-item">
+                        <button class="nav-link text-dark" id="weekday-tab" data-bs-toggle="tab"
+                                data-bs-target="#tab-weekday" type="button">평일(공통)</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link text-dark" id="saturday-tab" data-bs-toggle="tab"
+                                data-bs-target="#tab-saturday" type="button">토요일</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link text-dark" id="holiday-tab" data-bs-toggle="tab"
+                                data-bs-target="#tab-holiday" type="button">공휴일</button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="periodTabsContent">
+
+                    {# ── 월~금 개별 요일 탭 ── #}
+                    {% for code, label in [('mon','월요일'),('tue','화요일'),('wed','수요일'),('thu','목요일'),('fri','금요일')] %}
+                    <div class="tab-pane fade {{ 'show active' if loop.first }}"
+                         id="tab-{{ code }}" role="tabpanel">
+                        <form method="POST" action="{{ url_for('teacher.settings_periods') }}">
+                            <input type="hidden" name="day_type" value="{{ code }}">
+
+                            <div class="alert alert-info py-2 small mb-3">
+                                <strong>{{ label }} 개별 설정</strong> —
+                                설정하면 이 요일만 별도 시간이 적용됩니다.
+                                설정이 없으면 <strong>평일(공통)</strong> 시간이 사용됩니다.
+                                {% if all_settings[code] %}
+                                <span class="badge bg-success ms-1">개별 설정 적용 중</span>
+                                {% else %}
+                                <span class="badge bg-secondary ms-1">평일(공통) 사용 중</span>
+                                {% endif %}
+                            </div>
+
+                            {% set period_settings = all_settings[code] or all_settings['weekday'] %}
+                            {% set default_src = all_settings['weekday'] %}
+                            <table class="table table-sm">
+                                <thead><tr>
+                                    <th style="width:60px">활성화</th>
+                                    <th style="width:90px">교시</th>
+                                    <th>시작</th>
+                                    <th>종료</th>
+                                </tr></thead>
+                                <tbody>
+                                {% for period in range(0, 5) %}
+                                    {% set own  = all_settings[code].get(period) %}
+                                    {% set comm = all_settings['weekday'].get(period) %}
+                                    {% set df   = default_periods['weekday'].get(period) %}
+                                    {% set src  = own or comm %}
+                                    <tr>
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input"
+                                                   name="active_{{ period }}"
+                                                   {{ 'checked' if (src and (own.is_active if own else comm.is_active if comm else True)) or (not src and df) }}>
+                                        </td>
+                                        <td>
+                                            {% if period == 0 %}<strong>아침 자습</strong>
+                                            {% else %}<strong>{{ period }}교시</strong>{% endif %}
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="start_{{ period }}"
+                                                   value="{{ own.start_time if own else (comm.start_time if comm else (df[0] if df else '')) }}">
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="end_{{ period }}"
+                                                   value="{{ own.end_time if own else (comm.end_time if comm else (df[1] if df else '')) }}">
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+
+                            {# 동일 적용 체크박스 #}
+                            <div class="border rounded p-2 mb-3 bg-light">
+                                <div class="fw-bold small mb-2">동일하게 적용할 요일 선택:</div>
+                                <div class="d-flex flex-wrap gap-3">
+                                {% for other_code, other_label in [('mon','월'),('tue','화'),('wed','수'),('thu','목'),('fri','금'),('weekday','평일(공통)')] %}
+                                {% if other_code != code %}
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox"
+                                           name="copy_to" value="{{ other_code }}"
+                                           id="copy_{{ code }}_{{ other_code }}">
+                                    <label class="form-check-label" for="copy_{{ code }}_{{ other_code }}">
+                                        {{ other_label }}
+                                    </label>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm">{{ label }} 저장</button>
+                                {# 개별 설정 삭제 버튼 (평일공통으로 되돌리기) #}
+                                {% if all_settings[code] %}
+                                <form method="POST"
+                                      action="{{ url_for('teacher.settings_periods_delete', day_type=code) }}"
+                                      class="d-inline"
+                                      onsubmit="return confirm('{{ label }} 개별 설정을 삭제하고 평일(공통) 설정으로 되돌립니까?')">
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                        개별 설정 삭제 (공통으로 되돌리기)
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </form>
+                    </div>
+                    {% endfor %}
+
+                    {# ── 평일(공통) 탭 ── #}
+                    <div class="tab-pane fade" id="tab-weekday" role="tabpanel">
+                        <form method="POST" action="{{ url_for('teacher.settings_periods') }}">
+                            <input type="hidden" name="day_type" value="weekday">
+                            <div class="alert alert-warning py-2 small mb-3">
+                                <strong>평일(공통)</strong> — 개별 요일 설정이 없는 평일에 적용됩니다.
+                                개별 요일(월~금)에 별도 설정이 있으면 그 요일에는 공통 설정이 무시됩니다.
+                            </div>
+                            <table class="table table-sm">
+                                <thead><tr>
+                                    <th style="width:60px">활성화</th>
+                                    <th style="width:90px">교시</th>
+                                    <th>시작</th>
+                                    <th>종료</th>
+                                </tr></thead>
+                                <tbody>
+                                {% for period in range(0, 5) %}
+                                    {% set setting = all_settings['weekday'].get(period) %}
+                                    {% set df = default_periods['weekday'].get(period) %}
+                                    <tr>
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input"
+                                                   name="active_{{ period }}"
+                                                   {{ 'checked' if (setting and setting.is_active) or (not setting and df) }}>
+                                        </td>
+                                        <td>
+                                            {% if period == 0 %}<strong>아침 자습</strong>
+                                            {% else %}<strong>{{ period }}교시</strong>{% endif %}
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="start_{{ period }}"
+                                                   value="{{ setting.start_time if setting else (df[0] if df else '') }}">
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="end_{{ period }}"
+                                                   value="{{ setting.end_time if setting else (df[1] if df else '') }}">
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <div class="border rounded p-2 mb-3 bg-light">
+                                <div class="fw-bold small mb-2">동일하게 적용할 요일 선택:</div>
+                                <div class="d-flex flex-wrap gap-3">
+                                {% for other_code, other_label in [('mon','월'),('tue','화'),('wed','수'),('thu','목'),('fri','금')] %}
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox"
+                                           name="copy_to" value="{{ other_code }}"
+                                           id="copy_weekday_{{ other_code }}">
+                                    <label class="form-check-label" for="copy_weekday_{{ other_code }}">
+                                        {{ other_label }}
+                                    </label>
+                                </div>
+                                {% endfor %}
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">평일(공통) 저장</button>
+                        </form>
+                    </div>
+
+                    {# ── 토요일 탭 ── #}
+                    <div class="tab-pane fade" id="tab-saturday" role="tabpanel">
+                        <form method="POST" action="{{ url_for('teacher.settings_periods') }}">
+                            <input type="hidden" name="day_type" value="saturday">
+                            <p class="text-muted small mb-3">토요일 자습 시간을 설정합니다.</p>
+                            <table class="table table-sm">
+                                <thead><tr>
+                                    <th style="width:60px">활성화</th>
+                                    <th style="width:90px">교시</th>
+                                    <th>시작</th>
+                                    <th>종료</th>
+                                </tr></thead>
+                                <tbody>
+                                {% for period in range(1, 5) %}
+                                    {% set setting = all_settings['saturday'].get(period) %}
+                                    {% set df = default_periods['saturday'].get(period) %}
+                                    <tr>
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input"
+                                                   name="active_{{ period }}"
+                                                   {{ 'checked' if (setting and setting.is_active) or (not setting and df) }}>
+                                        </td>
+                                        <td><strong>{{ period }}교시</strong></td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="start_{{ period }}"
+                                                   value="{{ setting.start_time if setting else (df[0] if df else '') }}">
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="end_{{ period }}"
+                                                   value="{{ setting.end_time if setting else (df[1] if df else '') }}">
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <button type="submit" class="btn btn-primary btn-sm">토요일 저장</button>
+                        </form>
+                    </div>
+
+                    {# ── 공휴일 탭 ── #}
+                    <div class="tab-pane fade" id="tab-holiday" role="tabpanel">
+                        <form method="POST" action="{{ url_for('teacher.settings_periods') }}">
+                            <input type="hidden" name="day_type" value="holiday">
+                            <p class="text-muted small mb-3">공휴일 자습 시간을 설정합니다.</p>
+                            <table class="table table-sm">
+                                <thead><tr>
+                                    <th style="width:60px">활성화</th>
+                                    <th style="width:90px">교시</th>
+                                    <th>시작</th>
+                                    <th>종료</th>
+                                </tr></thead>
+                                <tbody>
+                                {% for period in range(1, 5) %}
+                                    {% set setting = all_settings['holiday'].get(period) %}
+                                    {% set df = default_periods['holiday'].get(period) %}
+                                    <tr>
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input"
+                                                   name="active_{{ period }}"
+                                                   {{ 'checked' if (setting and setting.is_active) or (not setting and df) }}>
+                                        </td>
+                                        <td><strong>{{ period }}교시</strong></td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="start_{{ period }}"
+                                                   value="{{ setting.start_time if setting else (df[0] if df else '') }}">
+                                        </td>
+                                        <td>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   name="end_{{ period }}"
+                                                   value="{{ setting.end_time if setting else (df[1] if df else '') }}">
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <button type="submit" class="btn btn-primary btn-sm">공휴일 저장</button>
+                        </form>
+                    </div>
+
+                </div><!-- /tab-content -->
+            </div>
+        </div>
+
+        {# 요일별 설정 현황 요약 #}
+        <div class="card mb-4">
+            <div class="card-header bg-secondary text-white small fw-bold">요일별 설정 현황</div>
+            <div class="card-body p-2">
+                <table class="table table-sm table-bordered mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>요일</th>
+                            <th>적용 설정</th>
+                            <th>교시 수</th>
+                            <th>1교시 시작</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for code, label in [('mon','월'),('tue','화'),('wed','수'),('thu','목'),('fri','금')] %}
+                    <tr>
+                        <td><strong>{{ label }}</strong></td>
+                        {% if all_settings[code] %}
+                        <td><span class="badge bg-success">개별 설정</span></td>
+                        {% set src = all_settings[code] %}
+                        {% else %}
+                        <td><span class="badge bg-secondary">평일(공통)</span></td>
+                        {% set src = all_settings['weekday'] %}
+                        {% endif %}
+                        <td>{{ src | length }}교시</td>
+                        <td>
+                            {% set p1 = src.get(1) or src.get(0) %}
+                            {{ p1.start_time if p1 else '-' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    <tr>
+                        <td><strong>토</strong></td>
+                        <td><span class="badge bg-primary">토요일</span></td>
+                        {% set src = all_settings['saturday'] %}
+                        <td>{{ src | length }}교시</td>
+                        <td>{% set p1 = src.get(1) %}{{ p1.start_time if p1 else '-' }}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 오른쪽 사이드바 -->
+    <div class="col-lg-4">
+        <!-- 자습 공간 관리 -->
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">자습 공간 관리</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('teacher.settings_room') }}" class="mb-3">
+                    <div class="mb-2">
+                        <input type="text" class="form-control" name="name"
+                               placeholder="공간 이름 (예: 1층 독서실)" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-4">
+                            <input type="number" class="form-control" name="capacity"
+                                   placeholder="전체" min="0" title="전체 수용인원">
+                        </div>
+                        <div class="col-4">
+                            <input type="number" class="form-control" name="male_capacity"
+                                   placeholder="남" min="0" title="남학생 수용인원">
+                        </div>
+                        <div class="col-4">
+                            <input type="number" class="form-control" name="female_capacity"
+                                   placeholder="여" min="0" title="여학생 수용인원">
+                        </div>
+                    </div>
+                    <small class="text-muted d-block mb-2">수용인원: 전체 / 남 / 여</small>
+                    <button type="submit" class="btn btn-success w-100">공간 추가</button>
+                </form>
+
+                <h6>등록된 자습 공간</h6>
+                {% if study_rooms %}
+                <ul class="list-group">
+                    {% for room in study_rooms %}
+                    <li class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="{{ 'text-muted' if not room.is_active }}">{{ room.name }}</span>
+                                {% if not room.is_active %}
+                                <span class="badge bg-secondary ms-1">비활성</span>
+                                {% endif %}
+                                <br>
+                                <small class="text-muted">
+                                    전체 {{ room.capacity }}명
+                                    {% if room.male_capacity > 0 or room.female_capacity > 0 %}
+                                    (남 {{ room.male_capacity }} / 여 {{ room.female_capacity }})
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="d-flex flex-wrap gap-1 justify-content-end">
+                                <a href="{{ url_for('teacher.qr_display', room_id=room.id) }}"
+                                   class="btn btn-sm btn-outline-primary">QR</a>
+                                <a href="{{ url_for('teacher.seat_layout', room_id=room.id) }}"
+                                   class="btn btn-sm btn-outline-secondary">배치도</a>
+                                <form method="POST" action="{{ url_for('teacher.assign_seats', room_id=room.id) }}"
+                                      style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-outline-info"
+                                            onclick="return confirm('{{ room.name }} 학생 자리를 임의(랜덤) 배정합니까?\n기존 좌석 번호가 초기화됩니다.')">
+                                        임의 배정
+                                    </button>
+                                </form>
+                                <a href="{{ url_for('teacher.manual_seats', room_id=room.id) }}"
+                                   class="btn btn-sm btn-outline-success">수동 배정</a>
+                                <button type="button" class="btn btn-sm btn-outline-dark"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#editRoomModal"
+                                        data-room-id="{{ room.id }}"
+                                        data-room-name="{{ room.name }}"
+                                        data-capacity="{{ room.capacity }}"
+                                        data-male="{{ room.male_capacity }}"
+                                        data-female="{{ room.female_capacity }}">
+                                    수정
+                                </button>
+                                <form method="POST" action="{{ url_for('teacher.settings_room_toggle', room_id=room.id) }}"
+                                      style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if room.is_active else 'success' }}">
+                                        {{ '비활성화' if room.is_active else '활성화' }}
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ url_for('teacher.settings_room_delete', room_id=room.id) }}"
+                                      style="display: inline;">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('자습 공간 &quot;{{ room.name }}&quot;을 삭제합니까?\n이 공간의 배정 정보가 모두 삭제됩니다.')">삭제</button>
+                                </form>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">등록된 자습 공간이 없습니다.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 공휴일 관리 -->
+        <div class="card">
+            <div class="card-header bg-danger text-white">공휴일 관리</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('teacher.settings_holiday') }}" class="mb-4">
+                    <div class="mb-2">
+                        <label class="form-label">날짜</label>
+                        <input type="date" class="form-control" name="date" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">공휴일 이름</label>
+                        <input type="text" class="form-control" name="name"
+                               placeholder="예: 설날, 추석" required>
+                    </div>
+                    <button type="submit" class="btn btn-danger w-100">공휴일 추가</button>
+                </form>
+
+                <h6>등록된 공휴일</h6>
+                {% if holidays %}
+                <ul class="list-group" style="max-height: 200px; overflow-y: auto;">
+                    {% for h in holidays %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                        <div>
+                            <small class="text-muted">{{ h.date.strftime('%Y-%m-%d') }}</small>
+                            {{ h.name }}
+                        </div>
+                        <form method="POST"
+                              action="{{ url_for('teacher.settings_holiday_delete', holiday_id=h.id) }}"
+                              style="display: inline;">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    onclick="return confirm('삭제하시겠습니까?')">삭제</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">등록된 공휴일이 없습니다.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 자습 공간 수정 모달 -->
+<div class="modal fade" id="editRoomModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">자습 공간 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editRoomForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">공간 이름</label>
+                        <input type="text" class="form-control" name="name" id="editRoomName" required>
+                    </div>
+                    <label class="form-label fw-bold">수용 인원</label>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <label class="form-label small text-muted">전체</label>
+                            <input type="number" class="form-control" name="capacity" id="editCapacity" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small text-muted">남학생</label>
+                            <input type="number" class="form-control" name="male_capacity" id="editMale" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small text-muted">여학생</label>
+                            <input type="number" class="form-control" name="female_capacity" id="editFemale" min="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-dark">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('editRoomModal').addEventListener('show.bs.modal', function (e) {
+    const btn = e.relatedTarget;
+    const form = document.getElementById('editRoomForm');
+    form.action = `/teacher/settings/room/edit/${btn.dataset.roomId}`;
+    document.getElementById('editRoomName').value = btn.dataset.roomName;
+    document.getElementById('editCapacity').value  = btn.dataset.capacity;
+    document.getElementById('editMale').value      = btn.dataset.male;
+    document.getElementById('editFemale').value    = btn.dataset.female;
+});
+</script>
+{% endblock %}

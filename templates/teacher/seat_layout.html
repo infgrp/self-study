@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}{{ room.name }} 좌석 배치도{% endblock %}
+
+{% block content %}
+<!-- ── 헤더 ── -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h4 class="mb-0">
+        {{ room.name }}
+        <span class="text-muted fw-normal fs-6">좌석 배치도</span>
+    </h4>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span id="save-status" class="small"></span>
+        <button id="btn-save" class="btn btn-primary btn-sm px-3">💾 배치 저장</button>
+        <a href="{{ url_for('teacher.settings') }}" class="btn btn-outline-secondary btn-sm">← 설정</a>
+        <a href="{{ url_for('teacher.students', room=room.id) }}" class="btn btn-outline-secondary btn-sm">학생 목록</a>
+    </div>
+</div>
+
+<!-- ── 출결 조회 컨트롤 바 ── -->
+<div class="card mb-2">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="d-flex align-items-center gap-1">
+                <label class="form-label mb-0 small fw-semibold">날짜</label>
+                <input type="date" id="att-date" class="form-control form-control-sm"
+                       value="{{ today.isoformat() }}" style="width:140px;">
+            </div>
+            <div class="d-flex align-items-center gap-1">
+                <label class="form-label mb-0 small fw-semibold">교시</label>
+                <select id="att-period" class="form-select form-select-sm" style="width:110px;">
+                    <option value="">전체</option>
+                    {% for period, times in period_times.items() %}
+                    <option value="{{ period }}">{{ period }}교시 ({{ times[0] }}~{{ times[1] }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button id="btn-refresh" class="btn btn-outline-info btn-sm">⟳ 새로고침</button>
+            <div class="d-flex align-items-center gap-1">
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="auto-refresh" checked>
+                    <label class="form-check-label small" for="auto-refresh">자동 갱신</label>
+                </div>
+            </div>
+            <div class="ms-auto text-muted small">
+                최종 갱신: <span id="last-update">-</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── 범례 ── -->
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <span class="legend-item male-legend">남</span>
+    <span class="legend-item female-legend">여</span>
+    <span class="vr"></span>
+    <span class="legend-dot ld-present"></span><span class="small">출석</span>
+    <span class="legend-dot ld-late"></span><span class="small">지각</span>
+    <span class="legend-dot ld-absent"></span><span class="small">결석</span>
+    <span class="legend-dot ld-applied"></span><span class="small">신청(미처리)</span>
+    <span class="legend-dot ld-none"></span><span class="small">해당없음</span>
+    <span class="vr"></span>
+    <span class="text-muted small">
+        버튼을 드래그하여 배치 후 <strong>저장</strong>을 누르세요 · 저장된 배치는 모든 교사가 공유됩니다
+    </span>
+</div>
+
+<!-- ── 배치도 영역 ── -->
+<div id="layout-area" class="layout-area">
+    {% set has_students = namespace(val=false) %}
+    {% for sr in assigned %}
+    {% if sr.user %}
+    {% set has_students.val = true %}
+    <div class="seat-card {{ 'male' if sr.user.gender == 'M' else 'female' }} status-none"
+         data-user-id="{{ sr.user.id }}"
+         {% if sr.pos_x is none %}
+         data-init="1"
+         style="left:0%;top:0%;"
+         {% else %}
+         style="left:{{ sr.pos_x | round(2) }}%;top:{{ sr.pos_y | round(2) }}%;"
+         {% endif %}>
+        <div class="seat-num">No.{{ sr.seat_number or '?' }}</div>
+        <div class="seat-id">{{ sr.user.student_id or '' }}</div>
+        <div class="seat-name">{{ sr.user.name }}</div>
+        <div class="seat-grade">{{ sr.user.grade }}-{{ sr.user.class_num }}</div>
+        <div class="seat-status-bar">
+            <span class="status-dot sd-none" id="sd-{{ sr.user.id }}"></span>
+            <span class="status-label" id="sl-{{ sr.user.id }}">-</span>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% if not has_students.val %}
+    <div class="text-center text-muted" style="padding-top:200px;">
+        이 자습실에 배정된 학생이 없습니다.<br>
+        <a href="{{ url_for('teacher.students') }}" class="btn btn-outline-primary mt-3">학생 배정 하러 가기</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<style>
+/* ── 배치도 ── */
+.layout-area {
+    position: relative;
+    width: 100%;
+    height: 620px;
+    background: #f8fafc;
+    border: 2px solid #94a3b8;
+    border-radius: 10px;
+    overflow: hidden;
+    touch-action: none;
+    background-image:
+        linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
+    background-size: 5% calc(100% / 12);
+}
+.layout-area::before {
+    content: "앞 (칠판)";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    text-align: center;
+    background: #334155;
+    color: #f1f5f9;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px;
+    letter-spacing: 2px;
+    z-index: 5;
+}
+
+/* ── 카드 기본 ── */
+.seat-card {
+    position: absolute;
+    width: 84px;
+    padding: 5px 4px 4px;
+    border-radius: 8px;
+    cursor: grab;
+    user-select: none;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    border: 2px solid transparent;
+    z-index: 10;
+    line-height: 1.3;
+    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+}
+.seat-card:active, .seat-card.dragging {
+    cursor: grabbing;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+    z-index: 200;
+    transform: scale(1.06);
+}
+.seat-card.male   { background: #dbeafe; color: #1e3a8a; }
+.seat-card.female { background: #fce7f3; color: #831843; }
+
+/* ── 출결 상태별 경계선 + 배경 강조 ── */
+.status-present {
+    border-color: #16a34a !important;
+    box-shadow: 0 0 0 2px #bbf7d0, 0 2px 6px rgba(0,0,0,0.15);
+}
+.status-late {
+    border-color: #d97706 !important;
+    box-shadow: 0 0 0 2px #fde68a, 0 2px 6px rgba(0,0,0,0.15);
+}
+.status-absent {
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 0 2px #fecaca, 0 2px 6px rgba(0,0,0,0.15);
+    opacity: 0.85;
+}
+.status-early-leave {
+    border-color: #ea580c !important;
+    box-shadow: 0 0 0 2px #fed7aa, 0 2px 6px rgba(0,0,0,0.15);
+}
+.status-approved-leave {
+    border-color: #0891b2 !important;
+    box-shadow: 0 0 0 2px #a5f3fc, 0 2px 6px rgba(0,0,0,0.15);
+}
+.status-applied {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px #bfdbfe, 0 2px 6px rgba(0,0,0,0.12);
+    border-style: dashed !important;
+}
+.status-none {
+    border-color: #cbd5e1 !important;
+    opacity: 0.55;
+}
+
+/* ── 카드 내부 텍스트 ── */
+.seat-num   { font-size: 9px;  opacity: 0.65; }
+.seat-id    { font-size: 10px; font-weight: 700; }
+.seat-name  { font-size: 13px; font-weight: 800; }
+.seat-grade { font-size: 9px;  opacity: 0.65; }
+
+/* ── 상태 바 ── */
+.seat-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin-top: 3px;
+    padding-top: 2px;
+    border-top: 1px solid rgba(0,0,0,0.10);
+    font-size: 10px;
+    font-weight: 700;
+}
+.status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.sd-present        { background: #16a34a; }
+.sd-late           { background: #d97706; }
+.sd-absent         { background: #dc2626; }
+.sd-early-leave    { background: #ea580c; }
+.sd-approved-leave { background: #0891b2; }
+.sd-applied        { background: #3b82f6; }
+.sd-none           { background: #cbd5e1; }
+
+.status-label { line-height: 1; }
+
+/* ── 저장 상태 ── */
+#save-status.ok  { color: #16a34a; font-weight: 600; }
+#save-status.err { color: #dc2626; font-weight: 600; }
+
+/* ── 범례 ── */
+.legend-item {
+    display: inline-block;
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    text-align: center;
+    line-height: 22px;
+    border: 2px solid transparent;
+}
+.male-legend   { background:#dbeafe; border-color:#3b82f6; color:#1e3a8a; }
+.female-legend { background:#fce7f3; border-color:#ec4899; color:#831843; }
+.legend-dot {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    vertical-align: middle;
+}
+.ld-present { background: #16a34a; }
+.ld-late    { background: #d97706; }
+.ld-absent  { background: #dc2626; }
+.ld-applied { background: #3b82f6; }
+.ld-none    { background: #cbd5e1; }
+
+@media (max-width: 576px) {
+    .layout-area { height: 70vh; }
+    .seat-card { width: 72px; }
+    .seat-name { font-size: 11px; }
+}
+</style>
+
+<script>
+(function () {
+    const ROOM_ID = {{ room.id }};
+    const STATUS_LABELS = {
+        present: '출석', late: '지각', absent: '결석',
+        early_leave: '조퇴', approved_leave: '출석인정',
+        applied: '신청', none: '-'
+    };
+    const STATUS_CLASSES = ['status-present','status-late','status-absent','status-early-leave','status-approved-leave','status-applied','status-none'];
+    const DOT_CLASSES    = ['sd-present','sd-late','sd-absent','sd-early-leave','sd-approved-leave','sd-applied','sd-none'];
+
+    const area     = document.getElementById('layout-area');
+    const cards    = [...document.querySelectorAll('.seat-card')];
+    const uninit   = cards.filter(c => c.dataset.init === '1');
+    const dateInp  = document.getElementById('att-date');
+    const periodSel= document.getElementById('att-period');
+    const btnRefresh = document.getElementById('btn-refresh');
+    const autoRefChk = document.getElementById('auto-refresh');
+    const lastUpd  = document.getElementById('last-update');
+
+    // ── 미배치 카드 자동 격자 배열 ──
+    if (uninit.length > 0) {
+        requestAnimationFrame(() => {
+            const N    = uninit.length;
+            const cols = Math.max(1, Math.ceil(Math.sqrt(N)));
+            const rows = Math.ceil(N / cols);
+            const aW   = area.offsetWidth;
+            const aH   = area.offsetHeight;
+            const cW   = (uninit[0].offsetWidth  / aW) * 100;
+            const cH   = (uninit[0].offsetHeight / aH) * 100;
+            const MARGIN_TOP = 5;
+            const colStep = Math.min((90 - cW) / Math.max(1, cols - 1), 90 / cols);
+            const rowStep = Math.min((88 - cH - MARGIN_TOP) / Math.max(1, rows - 1), 88 / rows);
+            uninit.forEach((card, i) => {
+                card.style.left = (5 + (i % cols) * colStep).toFixed(1) + '%';
+                card.style.top  = (MARGIN_TOP + Math.floor(i / cols) * rowStep).toFixed(1) + '%';
+            });
+        });
+    }
+
+    // ── 드래그 앤 드롭 (마우스 + 터치) ──
+    let drag = null, ox, oy, ol, ot;
+
+    function ptr(e) {
+        return e.touches
+            ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+            : { x: e.clientX,            y: e.clientY };
+    }
+
+    cards.forEach(card => {
+        card.addEventListener('mousedown',  startDrag);
+        card.addEventListener('touchstart', startDrag, { passive: false });
+    });
+
+    function startDrag(e) {
+        drag = e.currentTarget;
+        drag.classList.add('dragging');
+        const p = ptr(e);
+        ox = p.x; oy = p.y;
+        ol = parseFloat(drag.style.left);
+        ot = parseFloat(drag.style.top);
+        e.preventDefault();
+    }
+
+    function moveDrag(e) {
+        if (!drag) return;
+        const p = ptr(e);
+        const r = area.getBoundingClientRect();
+        const dx = (p.x - ox) / r.width  * 100;
+        const dy = (p.y - oy) / r.height * 100;
+        const mW = drag.offsetWidth  / r.width  * 100;
+        const mH = drag.offsetHeight / r.height * 100;
+        drag.style.left = Math.max(0, Math.min(100 - mW, ol + dx)).toFixed(2) + '%';
+        drag.style.top  = Math.max(0, Math.min(100 - mH, ot + dy)).toFixed(2) + '%';
+        e.preventDefault();
+    }
+
+    function stopDrag() {
+        if (drag) { drag.classList.remove('dragging'); drag = null; }
+    }
+
+    document.addEventListener('mousemove', moveDrag);
+    document.addEventListener('touchmove', moveDrag, { passive: false });
+    document.addEventListener('mouseup',   stopDrag);
+    document.addEventListener('touchend',  stopDrag);
+
+    // ── 배치 저장 ──
+    document.getElementById('btn-save').addEventListener('click', () => {
+        const btn  = document.getElementById('btn-save');
+        const stat = document.getElementById('save-status');
+        btn.disabled = true;
+        btn.textContent = '저장 중…';
+
+        const payload = cards.map(c => ({
+            user_id: parseInt(c.dataset.userId, 10),
+            x: parseFloat(c.style.left),
+            y: parseFloat(c.style.top)
+        }));
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        fetch('{{ url_for("teacher.save_layout", room_id=room.id) }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            btn.textContent = '💾 배치 저장';
+            if (d.ok) {
+                stat.textContent = '✓ 저장되었습니다';
+                stat.className = 'small ok';
+            } else {
+                stat.textContent = '오류: ' + (d.error || '알 수 없음');
+                stat.className = 'small err';
+            }
+            setTimeout(() => { stat.textContent = ''; stat.className = 'small'; }, 3000);
+        })
+        .catch(() => {
+            btn.disabled = false;
+            btn.textContent = '💾 배치 저장';
+            stat.textContent = '네트워크 오류';
+            stat.className = 'small err';
+        });
+    });
+
+    // ── 출결 상태 적용 ──
+    function applyStatus(card, status) {
+        STATUS_CLASSES.forEach(c => card.classList.remove(c));
+        card.classList.add('status-' + (status || 'none'));
+
+        const uid = card.dataset.userId;
+        const dot = document.getElementById('sd-' + uid);
+        const lbl = document.getElementById('sl-' + uid);
+        if (dot) {
+            DOT_CLASSES.forEach(c => dot.classList.remove(c));
+            dot.classList.add('sd-' + (status || 'none'));
+        }
+        if (lbl) {
+            lbl.textContent = STATUS_LABELS[status] || '-';
+        }
+    }
+
+    // ── 출결 현황 조회 ──
+    function fetchAttendance() {
+        const params = new URLSearchParams({ date: dateInp.value });
+        const p = periodSel.value;
+        if (p) params.append('period', p);
+
+        fetch(`/teacher/api/room/${ROOM_ID}/attendance_status?` + params)
+        .then(r => r.json())
+        .then(d => {
+            if (!d.ok) return;
+            cards.forEach(card => {
+                const uid = card.dataset.userId;
+                const info = d.data[uid];
+                const status = info ? info.overall : 'none';
+                applyStatus(card, status);
+
+                // 교시별 세부 정보를 툴팁으로 표시
+                if (info && info.periods && Object.keys(info.periods).length > 0) {
+                    const detail = Object.entries(info.periods)
+                        .map(([per, st]) => `${per}교시: ${STATUS_LABELS[st] || st}`)
+                        .join(' / ');
+                    card.title = detail;
+                } else {
+                    card.title = '';
+                }
+            });
+            lastUpd.textContent = new Date().toLocaleTimeString('ko-KR');
+        })
+        .catch(() => {
+            lastUpd.textContent = '오류 (' + new Date().toLocaleTimeString('ko-KR') + ')';
+        });
+    }
+
+    // ── 이벤트 연결 ──
+    btnRefresh.addEventListener('click', fetchAttendance);
+    dateInp.addEventListener('change', fetchAttendance);
+    periodSel.addEventListener('change', fetchAttendance);
+
+    // ── 자동 폴링 30초 ──
+    let pollTimer = null;
+    function startPoll()  { pollTimer = setInterval(fetchAttendance, 30000); }
+    function stopPoll()   { clearInterval(pollTimer); pollTimer = null; }
+
+    autoRefChk.addEventListener('change', function () {
+        if (this.checked) startPoll(); else stopPoll();
+    });
+
+    // ── 초기 조회 ──
+    fetchAttendance();
+    startPoll();
+})();
+</script>
+{% endblock %}

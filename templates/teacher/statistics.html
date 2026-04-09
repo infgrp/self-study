@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}참여 통계 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">월별 참여 우수자</h2>
+
+<!-- 검색 조건 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" class="row g-3 align-items-end">
+            <div class="col-auto">
+                <a href="{{ url_for('teacher.statistics', year=prev_year, month=prev_month, min_rate=min_rate, sort_by=sort_by, grade=grade_filter or '') }}"
+                   class="btn btn-outline-secondary">&lt;</a>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">년/월</label>
+                <div class="input-group">
+                    <input type="number" name="year" class="form-control" value="{{ year }}" style="width: 90px;">
+                    <span class="input-group-text">년</span>
+                    <input type="number" name="month" class="form-control" value="{{ month }}" min="1" max="12" style="width: 70px;">
+                    <span class="input-group-text">월</span>
+                </div>
+            </div>
+            <div class="col-auto">
+                <a href="{{ url_for('teacher.statistics', year=next_year, month=next_month, min_rate=min_rate, sort_by=sort_by, grade=grade_filter or '') }}"
+                   class="btn btn-outline-secondary">&gt;</a>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">학년</label>
+                <select name="grade" class="form-select">
+                    <option value="">전체</option>
+                    {% for g in range(1, 4) %}
+                    <option value="{{ g }}" {{ 'selected' if grade_filter == g }}>{{ g }}학년</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">참여율 기준</label>
+                <div class="input-group">
+                    <input type="number" name="min_rate" class="form-control" value="{{ min_rate }}"
+                           min="0" max="100" style="width: 80px;">
+                    <span class="input-group-text">% 이상</span>
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">정렬 기준</label>
+                <select name="sort_by" class="form-select">
+                    <option value="total" {{ 'selected' if sort_by == 'total' }}>총 학습시간</option>
+                    {% for p in period_nums %}
+                    <option value="period_{{ p }}" {{ 'selected' if sort_by == 'period_' ~ p }}>{{ p }}교시 학습시간</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">검색</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 교시별 출석률 및 학습시간 -->
+{% if period_nums %}
+<div class="card mb-3">
+    <div class="card-header bg-primary text-white">{{ year }}년 {{ month }}월 교시별 통계</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered mb-0 text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th>교시</th>
+                        {% for p in period_nums %}<th>{{ p }}교시</th>{% endfor %}
+                        <th class="fw-bold">전체</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="text-muted small">신청</td>
+                        {% for p in period_nums %}<td>{{ period_stats[p].applied }}회</td>{% endfor %}
+                        <td class="fw-bold">{{ total_applied_all }}회</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted small">출석</td>
+                        {% for p in period_nums %}<td>{{ period_stats[p].attended }}회</td>{% endfor %}
+                        <td class="fw-bold">{{ total_attended_all }}회</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted small">출석률</td>
+                        {% for p in period_nums %}
+                        {% set r = period_stats[p].rate %}
+                        <td><span class="badge bg-{{ 'success' if r >= 90 else ('primary' if r >= 80 else 'warning') }}">{{ r }}%</span></td>
+                        {% endfor %}
+                        <td><span class="badge fs-6 bg-{{ 'success' if total_rate_all >= 90 else ('primary' if total_rate_all >= 80 else 'warning') }}">{{ total_rate_all }}%</span></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted small">총 학습시간</td>
+                        {% for p in period_nums %}
+                        <td>
+                            {% if period_stats[p].minutes > 0 %}
+                            <span class="text-primary">{{ period_stats[p].hours }}h{% if period_stats[p].rem > 0 %} {{ period_stats[p].rem }}m{% endif %}</span>
+                            {% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="fw-bold">
+                            {% if total_minutes_all > 0 %}
+                            <span class="text-primary">{{ total_hours_all }}h{% if total_rem_all > 0 %} {{ total_rem_all }}m{% endif %}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 학생별 참여 우수자 테이블 -->
+<div class="card mb-3">
+    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+        <span>
+            {{ year }}년 {{ month }}월 참여 우수자
+            {% if sort_by == 'total' %}
+            <span class="badge bg-light text-dark ms-1">총 학습시간 순</span>
+            {% elif sort_by.startswith('period_') %}
+            <span class="badge bg-light text-dark ms-1">{{ sort_by[7:] }}교시 학습시간 순</span>
+            {% endif %}
+        </span>
+        <span>
+            <span class="badge bg-light text-dark">전체 {{ total_students }}명</span>
+            <span class="badge bg-warning text-dark">{{ min_rate }}% 이상: {{ student_stats|length }}명</span>
+        </span>
+    </div>
+    <div class="card-body">
+        {% if student_stats %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 50px;">순위</th>
+                        <th>이름</th>
+                        <th>학년/반</th>
+                        {% for p in period_nums %}
+                        <th class="text-center">
+                            {{ p }}교시<br>
+                            <small class="text-muted fw-normal">학습시간</small>
+                        </th>
+                        {% endfor %}
+                        <th class="text-center">신청</th>
+                        <th class="text-center">출석</th>
+                        <th class="text-center">참여율</th>
+                        <th class="text-center">총 학습시간</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in student_stats %}
+                    <tr>
+                        <td class="text-center">
+                            {% if loop.index <= 3 %}
+                            <span class="badge bg-{{ 'warning' if loop.index == 1 else ('secondary' if loop.index == 2 else 'danger') }}">
+                                {{ loop.index }}
+                            </span>
+                            {% else %}
+                            {{ loop.index }}
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ item.student.name }}</strong></td>
+                        <td class="text-nowrap">{{ item.student.grade }}-{{ item.student.class_num }}</td>
+                        {% for p in period_nums %}
+                        {% set pm = item.period_minutes[p] %}
+                        {% set ph = pm // 60 %}
+                        {% set prm = pm % 60 %}
+                        <td class="text-center text-nowrap">
+                            {% if pm > 0 %}
+                            <span class="text-primary">{{ ph }}h{% if prm > 0 %} {{ prm }}m{% endif %}</span>
+                            {% else %}
+                            <span class="text-muted small">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="text-center">{{ item.applied }}</td>
+                        <td class="text-center">{{ item.attended }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-{{ 'success' if item.rate >= 90 else ('primary' if item.rate >= 80 else 'warning') }}">
+                                {{ item.rate }}%
+                            </span>
+                        </td>
+                        <td class="text-center text-nowrap">
+                            {% if item.total_minutes > 0 %}
+                            <span class="text-primary fw-bold">{{ item.total_hours }}h{% if item.rem_minutes > 0 %} {{ item.rem_minutes }}m{% endif %}</span>
+                            {% else %}-{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 빠른 정렬 버튼 -->
+        <div class="mt-2 mb-3 d-flex flex-wrap gap-2 align-items-center">
+            <span class="text-muted small me-1">빠른 정렬:</span>
+            <a href="{{ url_for('teacher.statistics', year=year, month=month, min_rate=min_rate, sort_by='total', grade=grade_filter or '') }}"
+               class="btn btn-sm {{ 'btn-success' if sort_by == 'total' else 'btn-outline-success' }}">총 학습시간</a>
+            {% for p in period_nums %}
+            <a href="{{ url_for('teacher.statistics', year=year, month=month, min_rate=min_rate, sort_by='period_'~p, grade=grade_filter or '') }}"
+               class="btn btn-sm {{ 'btn-primary' if sort_by == 'period_'~p else 'btn-outline-primary' }}">{{ p }}교시</a>
+            {% endfor %}
+        </div>
+
+        <!-- 다운로드 -->
+        <div class="text-end mt-2">
+            <a href="{{ url_for('teacher.export_statistics', year=year, month=month,
+                                min_rate=min_rate, grade=grade_filter or '') }}"
+               class="btn btn-success me-2">📥 Excel 다운로드</a>
+            <button type="button" class="btn btn-outline-success" onclick="copyToClipboard()">
+                클립보드에 복사
+            </button>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <p class="text-muted mb-0">참여율 {{ min_rate }}% 이상인 학생이 없습니다.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 범례 -->
+<div class="card">
+    <div class="card-header">안내</div>
+    <div class="card-body">
+        <div class="row text-center">
+            <div class="col-md-4">
+                <span class="badge bg-success fs-6">90% 이상</span>
+                <p class="mb-0 mt-1">출석률 우수</p>
+            </div>
+            <div class="col-md-4">
+                <span class="badge bg-primary fs-6">80% 이상</span>
+                <p class="mb-0 mt-1">출석률 양호</p>
+            </div>
+            <div class="col-md-4">
+                <span class="badge bg-warning fs-6">80% 미만</span>
+                <p class="mb-0 mt-1">출석률 보통</p>
+            </div>
+        </div>
+        <hr>
+        <p class="text-muted mb-0 small">
+            * 학습시간 = QR 입실·퇴실 시각 기준 실측 시간 (QR 미사용 시 "-")<br>
+            * 참여율 = (출석 횟수 / 신청 횟수) × 100<br>
+            * 정렬: 총 학습시간 또는 교시별 학습시간 기준 내림차순
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyToClipboard() {
+    let text = "";
+    {% if period_nums %}
+    text += "[ 교시별 통계 ]\n";
+    text += "교시\t" + [{% for p in period_nums %}"{{ p }}교시",{% endfor %}"전체"].join("\t") + "\n";
+    text += "신청\t" + [{% for p in period_nums %}"{{ period_stats[p].applied }}회",{% endfor %}"{{ total_applied_all }}회"].join("\t") + "\n";
+    text += "출석\t" + [{% for p in period_nums %}"{{ period_stats[p].attended }}회",{% endfor %}"{{ total_attended_all }}회"].join("\t") + "\n";
+    text += "출석률\t" + [{% for p in period_nums %}"{{ period_stats[p].rate }}%",{% endfor %}"{{ total_rate_all }}%"].join("\t") + "\n";
+    text += "학습시간\t" + [{% for p in period_nums %}"{% if period_stats[p].minutes > 0 %}{{ period_stats[p].hours }}h{% if period_stats[p].rem > 0 %} {{ period_stats[p].rem }}m{% endif %}{% else %}-{% endif %}",{% endfor %}"{% if total_minutes_all > 0 %}{{ total_hours_all }}h{% if total_rem_all > 0 %} {{ total_rem_all }}m{% endif %}{% else %}-{% endif %}"].join("\t") + "\n\n";
+    {% endif %}
+    let hdr = ["순위","이름","학년/반"{% for p in period_nums %},"{{ p }}교시학습시간"{% endfor %},"신청","출석","참여율","총학습시간"];
+    text += hdr.join("\t") + "\n";
+    {% for item in student_stats %}
+    let row_{{ loop.index }} = ["{{ loop.index }}","{{ item.student.name }}","{{ item.student.grade }}-{{ item.student.class_num }}"
+        {% for p in period_nums %}
+        {%- set pm = item.period_minutes[p] %}
+        {%- set ph = pm // 60 %}
+        {%- set prm = pm % 60 %}
+        ,"{% if pm > 0 %}{{ ph }}h{% if prm > 0 %} {{ prm }}m{% endif %}{% else %}-{% endif %}"
+        {% endfor %}
+        ,"{{ item.applied }}","{{ item.attended }}","{{ item.rate }}%"
+        ,"{% if item.total_minutes > 0 %}{{ item.total_hours }}h {{ item.rem_minutes }}m{% else %}-{% endif %}"];
+    text += row_{{ loop.index }}.join("\t") + "\n";
+    {% endfor %}
+
+    navigator.clipboard.writeText(text).then(function() {
+        alert('클립보드에 복사되었습니다. 엑셀에 붙여넣기 하세요.');
+    });
+}
+</script>
+{% endblock %}

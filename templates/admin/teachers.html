@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}교사 계정 관리{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">교사 계정 관리</h2>
+
+{% if pending_count > 0 %}
+<div class="alert alert-warning">
+    승인 대기 중인 교사 계정이 <strong>{{ pending_count }}개</strong> 있습니다.
+</div>
+{% endif %}
+
+<!-- 필터 탭 -->
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if status_filter == 'all' %}active{% endif %}"
+           href="{{ url_for('admin_bp.teachers', status='all') }}">전체</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status_filter == 'pending' %}active{% endif %}"
+           href="{{ url_for('admin_bp.teachers', status='pending') }}">
+            승인 대기
+            {% if pending_count > 0 %}
+            <span class="badge bg-warning text-dark">{{ pending_count }}</span>
+            {% endif %}
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if status_filter == 'approved' %}active{% endif %}"
+           href="{{ url_for('admin_bp.teachers', status='approved') }}">승인 완료</a>
+    </li>
+</ul>
+
+{% if teachers %}
+<div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th>아이디</th>
+                <th>이름</th>
+                <th>상태</th>
+                <th class="text-center">작업</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for teacher in teachers %}
+            <tr class="{% if not teacher.is_approved %}table-warning{% endif %}">
+                <td>{{ teacher.username }}</td>
+                <td>{{ teacher.name }}</td>
+                <td>
+                    {% if teacher.is_approved %}
+                        <span class="badge bg-success">승인됨</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">승인 대기</span>
+                    {% endif %}
+                </td>
+                <td class="text-center">
+                    {% if not teacher.is_approved %}
+                    <!-- 승인 -->
+                    <form method="post"
+                          action="{{ url_for('admin_bp.approve_teacher', user_id=teacher.id) }}"
+                          class="d-inline">
+                        <button type="submit" class="btn btn-success btn-sm"
+                                onclick="return confirm('{{ teacher.name }} 교사를 승인하시겠습니까?')">
+                            승인
+                        </button>
+                    </form>
+                    <!-- 거부(삭제) -->
+                    <form method="post"
+                          action="{{ url_for('admin_bp.reject_teacher', user_id=teacher.id) }}"
+                          class="d-inline ms-1">
+                        <button type="submit" class="btn btn-danger btn-sm"
+                                onclick="return confirm('{{ teacher.name }} 계정을 삭제(거부)하시겠습니까?')">
+                            거부
+                        </button>
+                    </form>
+                    {% else %}
+                    <!-- 권한 취소 -->
+                    <form method="post"
+                          action="{{ url_for('admin_bp.revoke_teacher', user_id=teacher.id) }}"
+                          class="d-inline">
+                        <button type="submit" class="btn btn-outline-danger btn-sm"
+                                onclick="return confirm('{{ teacher.name }} 교사의 접근 권한을 취소하시겠습니까?')">
+                            권한 취소
+                        </button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">해당하는 교사 계정이 없습니다.</div>
+{% endif %}
+{% endblock %}

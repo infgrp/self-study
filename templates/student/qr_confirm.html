@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}QR 출석 확인 - 자율학습 관리{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-sm-10 col-md-8 col-lg-5">
+        {% if action == 'attend' %}
+        <div class="card border-primary shadow">
+            <div class="card-header bg-primary text-white text-center fs-5 fw-bold">
+                📋 입실 확인
+            </div>
+            <div class="card-body text-center py-4">
+                <p class="mb-1 text-muted">자습 공간</p>
+                <p class="fs-3 fw-bold mb-4">{{ room.name }}</p>
+                <p class="mb-4">아래 버튼을 눌러 입실을 확정하세요.</p>
+                <form method="POST"
+                      action="{{ url_for('student.qr_attend', token=token) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary btn-lg px-5">
+                        ✅ 입실 확정
+                    </button>
+                </form>
+                <a href="{{ url_for('student.dashboard') }}"
+                   class="btn btn-outline-secondary mt-3">취소</a>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-warning shadow">
+            <div class="card-header bg-warning text-dark text-center fs-5 fw-bold">
+                🚪 퇴실 확인
+            </div>
+            <div class="card-body text-center py-4">
+                <p class="mb-1 text-muted">자습 공간</p>
+                <p class="fs-3 fw-bold mb-4">{{ room.name }}</p>
+                <p class="mb-4">아래 버튼을 눌러 퇴실을 확정하세요.</p>
+                <form method="POST"
+                      action="{{ url_for('student.qr_checkout', token=token) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-warning btn-lg px-5">
+                        🚪 퇴실 확정
+                    </button>
+                </form>
+                <a href="{{ url_for('student.dashboard') }}"
+                   class="btn btn-outline-secondary mt-3">취소</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
