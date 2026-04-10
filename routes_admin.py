@@ -365,6 +365,7 @@ def new_year_backup():
         'absent':         '결석',
         'early_leave':    '조퇴',
         'approved_leave': '출석인정',
+        'after_school':   '방과후출결인정',
     }
     for att in Attendance.query.order_by(Attendance.date, Attendance.period).all():
         s = students.get(att.user_id)
@@ -452,8 +453,26 @@ def new_year_backup():
             round(sr.pos_y, 4) if sr.pos_y is not None else '',
         ])
 
+    # ── 12. 방과후 수업 스케줄 ──
+    DAY_NAMES = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금'}
+    ws12 = wb.create_sheet('방과후수업')
+    make_header(ws12, ['학번', '이름', '학년', '반', '요일', '요일번호(0=월)', '교시'])
+    for sc in Schedule.query.order_by(Schedule.user_id, Schedule.day_of_week, Schedule.period).all():
+        s = students.get(sc.user_id)
+        if not s:
+            continue
+        ws12.append([
+            s.student_id,
+            s.name,
+            s.grade,
+            s.class_num,
+            DAY_NAMES.get(sc.day_of_week, str(sc.day_of_week)),
+            sc.day_of_week,
+            sc.period,
+        ])
+
     # 열 너비 자동 조정
-    for ws in [ws1, ws2, ws3, ws4, ws5, ws6, ws7, ws8, ws9, ws10, ws11]:
+    for ws in [ws1, ws2, ws3, ws4, ws5, ws6, ws7, ws8, ws9, ws10, ws11, ws12]:
         for col in ws.columns:
             max_len = max((len(str(c.value or '')) for c in col), default=8)
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 30)
@@ -491,6 +510,7 @@ def restore():
     restore_apps        = 'applications'     in options
     restore_logs        = 'study_logs'       in options
     restore_rooms       = 'room_assignments' in options
+    restore_schedules   = 'schedules'        in options
 
     try:
         wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
@@ -499,11 +519,12 @@ def restore():
         return render_template('admin/restore.html')
 
     STATUS_MAP = {
-        '출석':   'present',
-        '지각':   'late',
-        '결석':   'absent',
-        '조퇴':   'early_leave',
-        '출석인정': 'approved_leave',
+        '출석':         'present',
+        '지각':         'late',
+        '결석':         'absent',
+        '조퇴':         'early_leave',
+        '출석인정':     'approved_leave',
+        '방과후출결인정': 'after_school',
     }
     result = {'students': 0, 'teachers': 0, 'admins': 0, 'study_rooms': 0,
               'holidays': 0, 'period_settings': 0, 'skipped': 0,
@@ -886,6 +907,54 @@ def restore():
             except Exception as e:
                 result['errors'].append(f'자습실배정 행 오류: {e}')
 
+    # ── 방과후 수업 스케줄 복원 (Sheet: 방과후수업) ──
+    # 컬럼: 학번, 이름, 학년, 반, 요일(한글), 요일번호(0=월), 교시
+    result['schedules'] = 0
+    if restore_schedules and '방과후수업' in wb.sheetnames:
+        sid_to_user = {u.student_id: u for u in User.query.filter_by(role='student').all()}
+        # 활성 교시 화이트리스트 (없으면 검증 생략)
+        from models import StudyPeriodSetting as _SPS
+        valid_periods = {s.period for s in _SPS.query.filter_by(is_active=True).all()
+                         if s.day_type in ('weekday', 'mon', 'tue', 'wed', 'thu', 'fri')}
+        ws = wb['방과후수업']
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or row[0] is None:
+                continue
+            try:
+                sid     = str(row[0]).strip()
+                day_i   = int(row[5]) if len(row) > 5 and row[5] not in (None, '') else None
+                period  = int(row[6]) if len(row) > 6 and row[6] not in (None, '') else None
+                if day_i is None or period is None:
+                    continue
+                if not (0 <= day_i <= 4):
+                    result['errors'].append(f'방과후 요일 오류 (건너뜀): 학번={sid}, 요일={day_i}')
+                    continue
+                if valid_periods and period not in valid_periods:
+                    result['errors'].append(f'방과후 교시 오류 (건너뜀): 학번={sid}, {period}교시는 활성 교시 아님')
+                    continue
+                user = sid_to_user.get(sid)
+                if not user:
+                    continue
+                # 중복이면 건너뜀
+                if Schedule.query.filter_by(user_id=user.id, day_of_week=day_i, period=period).first():
+                    result['skipped'] += 1
+                    continue
+                db.session.add(Schedule(
+                    user_id=user.id,
+                    day_of_week=day_i,
+                    period=period,
+                    subject='방과후수업',
+                ))
+                result['schedules'] += 1
+            except Exception as e:
+                result['errors'].append(f'방과후수업 행 오류: {e}')
+        try:
+            db.session.flush()
+        except Exception as e:
+            db.session.rollback()
+            flash(f'방과후수업 복원 중 DB 오류: {e}', 'danger')
+            return redirect(url_for('admin_bp.restore'))
+
     try:
         db.session.commit()
     except Exception as e:
@@ -904,7 +973,8 @@ def restore():
            f'출결 {result["attendance"]}건 / '
            f'자습신청 {result["applications"]}건 / '
            f'학습기록 {result["study_logs"]}건 / '
-           f'자습실배정 {result["room_assignments"]}건')
+           f'자습실배정 {result["room_assignments"]}건 / '
+           f'방과후수업 {result["schedules"]}건')
     flash(msg, 'success')
 
     if result['errors']:

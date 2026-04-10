@@ -387,12 +387,12 @@ def my_attendance():
 
     # 월간 요약 통계
     total_applied     = len(apps)
-    total_present     = sum(1 for a in atts.values() if a.status == 'present')
+    total_present     = sum(1 for a in atts.values() if a.status in ('present', 'after_school'))
     total_late        = sum(1 for a in atts.values() if a.status == 'late')
     total_absent      = sum(1 for a in atts.values() if a.status == 'absent')
     total_early_leave = sum(1 for a in atts.values() if a.status == 'early_leave')
     total_approved    = sum(1 for a in atts.values() if a.status == 'approved_leave')
-    # 출석인정(approved_leave)도 참여로 계산
+    # 출석인정·방과후출결인정도 참여로 계산
     rate = round(
         (total_present + total_late + total_approved) / total_applied * 100
     ) if total_applied else 0
@@ -507,7 +507,7 @@ def qr_attend(token):
             ))
             db.session.commit()
             flash(f'{room.name}에서 {current_period}교시 지각 처리되었습니다.', 'warning')
-        elif existing.status in ('present', 'late', 'approved_leave'):
+        elif existing.status in ('present', 'late', 'approved_leave', 'after_school'):
             flash(f'{current_period}교시 출석은 이미 완료되었습니다.', 'info')
         elif existing.status in ('absent', 'early_leave'):
             # 자동처리로 지각/결석 처리됐거나 조퇴 후 재입실 → 출석으로 갱신

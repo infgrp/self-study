@@ -7,6 +7,7 @@
   {% elif s == 'absent' %}<span class="badge bg-danger">결석</span>
   {% elif s == 'early_leave' %}<span class="badge bg-orange text-white">조퇴</span>
   {% elif s == 'approved_leave' %}<span class="badge bg-info text-white">출석인정</span>
+  {% elif s == 'after_school' %}<span class="badge bg-purple text-white">방과후출결인정</span>
   {% else %}<span class="badge bg-secondary">{{ s }}</span>
   {% endif %}
 {% endmacro %}
@@ -188,16 +189,18 @@
                                                 {% elif att.status == 'absent' %}bg-danger text-white
                                                 {% elif att.status == 'early_leave' %}bg-orange text-white
                                                 {% elif att.status == 'approved_leave' %}bg-info text-white
+                                                {% elif att.status == 'after_school' %}bg-purple text-white
                                                 {% endif %}
                                             {% endif %}"
                                         onchange="handleStatusChange(this, '{{ s.id }}', '{{ period }}')"
-                                        style="width: 90px;">
+                                        style="width: 110px;">
                                     <option value="present"        {{ 'selected' if att and att.status == 'present' }}>출석</option>
                                     <option value="late"           {{ 'selected' if att and att.status == 'late' }}>지각</option>
                                     <option value="absent"         {{ 'selected' if att and att.status == 'absent' }}
                                                                    {% if not att %}selected{% endif %}>결석</option>
                                     <option value="early_leave"    {{ 'selected' if att and att.status == 'early_leave' }}>조퇴</option>
                                     <option value="approved_leave" {{ 'selected' if att and att.status == 'approved_leave' }}>출석인정</option>
+                                    <option value="after_school"   {{ 'selected' if att and att.status == 'after_school' }}>방과후출결인정</option>
                                 </select>
                             </form>
 
@@ -212,8 +215,8 @@
                             </small>
                             {% endif %}
 
-                            {# ── 출석인정 처리 폼 (조퇴·출석인정 모두 표시) ── #}
-                            {% if att and att.status in ('early_leave', 'approved_leave') %}
+                            {# ── 출석인정 처리 폼 (조퇴·출석인정·방과후출결인정 모두 표시) ── #}
+                            {% if att and att.status in ('early_leave', 'approved_leave', 'after_school') %}
                             <div class="mt-1">
                                 <form method="POST" action="{{ url_for('teacher.attendance_update') }}" class="d-flex gap-1 align-items-center">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -231,16 +234,16 @@
                                            value="{{ att.early_leave_note or '' }}"
                                            style="width:90px; font-size:0.72rem;">
                                     <button type="submit" class="btn btn-sm text-white text-nowrap
-                                        {% if att.status == 'approved_leave' %}btn-secondary{% else %}btn-info{% endif %}"
+                                        {% if att.status in ('approved_leave', 'after_school') %}btn-secondary{% else %}btn-info{% endif %}"
                                             style="font-size:0.72rem; padding:2px 6px;">
-                                        {% if att.status == 'approved_leave' %}사유수정{% else %}출석인정{% endif %}
+                                        {% if att.status in ('approved_leave', 'after_school') %}사유수정{% else %}출석인정{% endif %}
                                     </button>
                                 </form>
                             </div>
                             {% endif %}
 
                             {# ── 기타 상태에서 출석인정으로 변경할 때 사유 입력 폼 ── #}
-                            {% if att and att.status not in ('early_leave', 'approved_leave') and att.status in ('present', 'late', 'absent') %}
+                            {% if att and att.status not in ('early_leave', 'approved_leave', 'after_school') and att.status in ('present', 'late', 'absent') %}
                             <div class="mt-1" id="note-form-{{ s.id }}-{{ period }}" style="display:none;">
                                 <form method="POST" action="{{ url_for('teacher.attendance_update') }}" class="d-flex gap-1 align-items-center">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -360,10 +363,12 @@ document.getElementById('roomSelect').addEventListener('change', function() {
 // approved_leave 선택 시: 현재 상태가 early_leave/approved_leave가 아니면
 // 아래 숨겨진 사유 입력 폼을 펼치고 제출은 미룬다.
 function handleStatusChange(select, userId, period) {
-    if (select.value === 'approved_leave') {
+    if (select.value === 'approved_leave' || select.value === 'after_school') {
         const noteForm = document.getElementById('note-form-' + userId + '-' + period);
         if (noteForm) {
             // 사유 입력 폼이 있으면 먼저 표시, 폼 제출은 하지 않음
+            // hidden status 값을 선택한 값으로 업데이트
+            noteForm.querySelector('input[name="status"]').value = select.value;
             noteForm.style.display = 'block';
             noteForm.querySelector('input[type="text"]').focus();
             // select를 원래 값으로 되돌려 표시 (실제 변경은 note form 제출로)

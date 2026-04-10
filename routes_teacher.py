@@ -24,6 +24,7 @@ STATUS_LABELS = {
     'absent':         '결석',
     'early_leave':    '조퇴',
     'approved_leave': '출석인정',
+    'after_school':   '방과후출결인정',
 }
 
 DAY_TYPE_LABELS = {
@@ -108,7 +109,7 @@ def dashboard():
 
     # 오늘 출석한 학생 수 (present/late/approved_leave 기준, 중복 제거)
     today_atts = Attendance.query.filter_by(date=today).all()
-    ACTIVE_STATUSES = {'present', 'late', 'approved_leave'}
+    ACTIVE_STATUSES = {'present', 'late', 'approved_leave', 'after_school'}
     attended_today = len({a.user_id for a in today_atts if a.status in ACTIVE_STATUSES})
 
     # 학년별 학생 수
@@ -409,13 +410,13 @@ def after_school_attendance():
             db.session.add(StudyApplication(
                 user_id=sc.user_id, date=view_date, period=sc.period))
 
-        # 출석 없으면 present 생성
+        # 출석 없으면 after_school 생성
         if not Attendance.query.filter_by(
                 user_id=sc.user_id, date=view_date, period=sc.period).first():
             sr = StudentRoom.query.filter_by(user_id=sc.user_id).first()
             att = Attendance(
                 user_id=sc.user_id, date=view_date, period=sc.period,
-                status='present',
+                status='after_school',
                 study_room_id=sr.study_room_id if sr else None,
             )
             db.session.add(att)
@@ -424,7 +425,7 @@ def after_school_attendance():
                 attendance_id=att.id,
                 changed_by=current_user.id,
                 old_status=None,
-                new_status='present',
+                new_status='after_school',
                 note='방과후자동출석',
             ))
             processed += 1
@@ -568,7 +569,7 @@ def attendance_update():
     if att:
         att.status = new_status
         # study_room_id는 기존 기록 유지 — 과거 자습실 이력 보존
-        if new_status in ('early_leave', 'approved_leave'):
+        if new_status in ('early_leave', 'approved_leave', 'after_school'):
             if early_leave_note:
                 att.early_leave_note = early_leave_note
         else:
@@ -593,6 +594,8 @@ def attendance_update():
         note_text = '수동처리'
         if new_status == 'approved_leave':
             note_text = f'출석인정({early_leave_note})' if early_leave_note else '출석인정'
+        elif new_status == 'after_school':
+            note_text = f'방과후출결인정({early_leave_note})' if early_leave_note else '방과후출결인정'
         log = AttendanceLog(
             attendance_id=att.id,
             changed_by=current_user.id,
@@ -758,7 +761,7 @@ def statistics():
             Attendance.user_id.in_(student_ids),
             Attendance.date >= first_day,
             Attendance.date <= last_day,
-            Attendance.status.in_(['present', 'late', 'approved_leave']),
+            Attendance.status.in_(['present', 'late', 'approved_leave', 'after_school']),
         ).group_by(Attendance.user_id, Attendance.period).all():
             att_by_sp[(r.user_id, r.period)] = r.cnt
 
@@ -1357,7 +1360,7 @@ def student_report(user_id):
         StudyLog.date >= first_day, StudyLog.date <= last_day
     ).order_by(StudyLog.date.desc()).all()
 
-    present_count = sum(1 for a in attendances if a.status == 'present')
+    present_count = sum(1 for a in attendances if a.status in ('present', 'after_school'))
     late_count    = sum(1 for a in attendances if a.status == 'late')
     absent_count  = sum(1 for a in attendances if a.status == 'absent')
     approved_count = sum(1 for a in attendances if a.status == 'approved_leave')
@@ -1460,9 +1463,11 @@ def export_attendance():
     ws.row_dimensions[2].height = 42
 
     status_text  = {'present': '출석', 'late': '지각', 'absent': '결석',
-                    'early_leave': '조퇴', 'approved_leave': '출석인정'}
+                    'early_leave': '조퇴', 'approved_leave': '출석인정',
+                    'after_school': '방과후출결인정'}
     status_color = {'present': 'C6EFCE', 'late': 'FFEB9C', 'absent': 'FFC7CE',
-                    'early_leave': 'F4CCCC', 'approved_leave': 'CFE2F3'}
+                    'early_leave': 'F4CCCC', 'approved_leave': 'CFE2F3',
+                    'after_school': 'D9C8F5'}
 
     for ri, s in enumerate(students, 3):
         ws.cell(ri, 1, s.name)
