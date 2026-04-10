@@ -15,6 +15,62 @@
 {% block content %}
 <h2 class="mb-4">출석 관리</h2>
 
+<!-- 출석 현황 요약 -->
+<div class="card mb-3 border-0 shadow-sm">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+
+            {# 전체 합계 #}
+            <div class="col-auto">
+                <div class="d-flex align-items-center gap-2 px-3 py-2 rounded bg-light border">
+                    <span class="fw-bold text-secondary" style="font-size:0.8rem;">전체</span>
+                    <span class="fs-5 fw-bold text-success">{{ total_present }}</span>
+                    <span class="text-muted" style="font-size:0.8rem;">/ {{ total_students }}명</span>
+                </div>
+            </div>
+
+            <div class="col-auto text-muted" style="font-size:1.2rem;">|</div>
+
+            {# 학년별 #}
+            {% for g in grade_summary.keys() | sort %}
+            {% set gs = grade_summary[g] %}
+            {% if g > 0 %}
+            <div class="col-auto">
+                <div class="d-flex align-items-center gap-1 px-2 py-1 rounded
+                    {{ 'bg-success bg-opacity-10 border border-success' if gs.present > 0 else 'bg-light border' }}"
+                    style="min-width:80px;">
+                    <span class="fw-semibold" style="font-size:0.78rem;">{{ g }}학년</span>
+                    <span class="fw-bold {{ 'text-success' if gs.present > 0 else 'text-muted' }}">{{ gs.present }}</span>
+                    <span class="text-muted" style="font-size:0.75rem;">/{{ gs.total }}</span>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+
+            {% if room_summary %}
+            <div class="col-auto text-muted" style="font-size:1.2rem;">|</div>
+
+            {# 자습실별 #}
+            {% for rid, rs in room_summary.items() %}
+            <div class="col-auto">
+                <div class="d-flex align-items-center gap-1 px-2 py-1 rounded
+                    {{ 'bg-primary bg-opacity-10 border border-primary' if rs.present > 0 else 'bg-light border' }}"
+                    style="min-width:80px;">
+                    <span class="fw-semibold text-truncate" style="font-size:0.78rem; max-width:70px;"
+                          title="{{ rs.name }}">{{ rs.name }}</span>
+                    <span class="fw-bold {{ 'text-primary' if rs.present > 0 else 'text-muted' }}">{{ rs.present }}</span>
+                    {% if rs.capacity > 0 %}
+                    <span class="text-muted" style="font-size:0.75rem;">/{{ rs.capacity }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+
 <!-- 날짜/학년/일자유형 선택 -->
 <div class="card mb-3">
     <div class="card-body">

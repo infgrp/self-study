@@ -499,7 +499,8 @@ def attendance_view():
 
     # 해당 날짜 출석 데이터
     att_data = {}
-    for att in Attendance.query.filter_by(date=view_date).all():
+    all_atts_today = Attendance.query.filter_by(date=view_date).all()
+    for att in all_atts_today:
         att_data[(att.user_id, att.period)] = att
 
     # 해당 날짜 신청 데이터
@@ -513,6 +514,34 @@ def attendance_view():
                 .filter(Attendance.date == view_date)
                 .order_by(AttendanceLog.changed_at.desc())
                 .limit(100).all())
+
+    # ── 출석 현황 요약 (필터 무관, 당일 전체 기준) ──
+    _ACTIVE = {'present', 'late', 'approved_leave', 'after_school'}
+    # 오늘 활성 출석이 1건 이상 있는 학생 ID
+    active_user_ids = {a.user_id for a in all_atts_today if a.status in _ACTIVE}
+
+    # 학년별 요약: {grade: {'total': N, 'present': N}}
+    _all_students = User.query.filter_by(role='student').all()
+    grade_summary = {}
+    for s in _all_students:
+        g = s.grade or 0
+        if g not in grade_summary:
+            grade_summary[g] = {'total': 0, 'present': 0}
+        grade_summary[g]['total'] += 1
+        if s.id in active_user_ids:
+            grade_summary[g]['present'] += 1
+
+    # 자습실별 요약: room_id → {'name': ..., 'present': N, 'capacity': N}
+    room_summary = {r.id: {'name': r.name, 'present': 0, 'capacity': r.capacity}
+                    for r in study_rooms}
+    for uid in active_user_ids:
+        rid = student_room_map.get(uid)
+        if rid and rid in room_summary:
+            room_summary[rid]['present'] += 1
+
+    # 전체 합계
+    total_students = len(_all_students)
+    total_present  = len(active_user_ids)
 
     return render_template('teacher/attendance.html',
                            view_date=view_date,
@@ -529,7 +558,11 @@ def attendance_view():
                            is_holiday=is_holiday,
                            study_rooms=study_rooms,
                            student_room_map=student_room_map,
-                           att_logs=att_logs)
+                           att_logs=att_logs,
+                           grade_summary=grade_summary,
+                           room_summary=room_summary,
+                           total_students=total_students,
+                           total_present=total_present)
 
 
 @teacher_bp.route('/attendance/update', methods=['POST'])
