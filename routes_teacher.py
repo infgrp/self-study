@@ -543,6 +543,16 @@ def attendance_view():
     total_students = len(_all_students)
     total_present  = len(active_user_ids)
 
+    # 좌석 배치 현황용 데이터 (교시별 AJAX에서 사용)
+    rooms_with_seats = []
+    for room in study_rooms:
+        assigned = (StudentRoom.query
+                    .filter_by(study_room_id=room.id)
+                    .join(User, StudentRoom.user_id == User.id)
+                    .order_by(StudentRoom.seat_number)
+                    .all())
+        rooms_with_seats.append((room, assigned))
+
     return render_template('teacher/attendance.html',
                            view_date=view_date,
                            students=student_list,
@@ -562,7 +572,8 @@ def attendance_view():
                            grade_summary=grade_summary,
                            room_summary=room_summary,
                            total_students=total_students,
-                           total_present=total_present)
+                           total_present=total_present,
+                           rooms_with_seats=rooms_with_seats)
 
 
 @teacher_bp.route('/attendance/update', methods=['POST'])
@@ -1719,7 +1730,7 @@ def room_attendance_status(room_id):
         all_periods = sorted(set(list(atts.keys()) + list(apps)))
         periods_data = {str(p): _status(p) for p in all_periods}
 
-        if period_q:
+        if period_q is not None:
             overall = _status(period_q)
         else:
             # 가장 좋은 상태를 대표값으로

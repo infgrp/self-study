@@ -56,6 +56,9 @@
     <span class="legend-dot ld-present"></span><span class="small">출석</span>
     <span class="legend-dot ld-late"></span><span class="small">지각</span>
     <span class="legend-dot ld-absent"></span><span class="small">결석</span>
+    <span class="legend-dot ld-early-leave"></span><span class="small">조퇴</span>
+    <span class="legend-dot ld-approved-leave"></span><span class="small">출석인정</span>
+    <span class="legend-dot ld-after-school"></span><span class="small">방과후</span>
     <span class="legend-dot ld-applied"></span><span class="small">신청(미처리)</span>
     <span class="legend-dot ld-none"></span><span class="small">해당없음</span>
     <span class="vr"></span>
@@ -177,6 +180,10 @@
     border-color: #0891b2 !important;
     box-shadow: 0 0 0 2px #a5f3fc, 0 2px 6px rgba(0,0,0,0.15);
 }
+.status-after-school {
+    border-color: #6f42c1 !important;
+    box-shadow: 0 0 0 2px #d8b4fe, 0 2px 6px rgba(0,0,0,0.15);
+}
 .status-applied {
     border-color: #3b82f6 !important;
     box-shadow: 0 0 0 2px #bfdbfe, 0 2px 6px rgba(0,0,0,0.12);
@@ -215,6 +222,7 @@
 .sd-absent         { background: #dc2626; }
 .sd-early-leave    { background: #ea580c; }
 .sd-approved-leave { background: #0891b2; }
+.sd-after-school   { background: #6f42c1; }
 .sd-applied        { background: #3b82f6; }
 .sd-none           { background: #cbd5e1; }
 
@@ -243,11 +251,14 @@
     border-radius: 50%;
     vertical-align: middle;
 }
-.ld-present { background: #16a34a; }
-.ld-late    { background: #d97706; }
-.ld-absent  { background: #dc2626; }
-.ld-applied { background: #3b82f6; }
-.ld-none    { background: #cbd5e1; }
+.ld-present        { background: #16a34a; }
+.ld-late           { background: #d97706; }
+.ld-absent         { background: #dc2626; }
+.ld-early-leave    { background: #ea580c; }
+.ld-approved-leave { background: #0891b2; }
+.ld-after-school   { background: #6f42c1; }
+.ld-applied        { background: #3b82f6; }
+.ld-none           { background: #cbd5e1; }
 
 @media (max-width: 576px) {
     .layout-area { height: 70vh; }
@@ -262,10 +273,10 @@
     const STATUS_LABELS = {
         present: '출석', late: '지각', absent: '결석',
         early_leave: '조퇴', approved_leave: '출석인정',
-        applied: '신청', none: '-'
+        after_school: '방과후출결인정', applied: '신청', none: '-'
     };
-    const STATUS_CLASSES = ['status-present','status-late','status-absent','status-early-leave','status-approved-leave','status-applied','status-none'];
-    const DOT_CLASSES    = ['sd-present','sd-late','sd-absent','sd-early-leave','sd-approved-leave','sd-applied','sd-none'];
+    const STATUS_CLASSES = ['status-present','status-late','status-absent','status-early-leave','status-approved-leave','status-after-school','status-applied','status-none'];
+    const DOT_CLASSES    = ['sd-present','sd-late','sd-absent','sd-early-leave','sd-approved-leave','sd-after-school','sd-applied','sd-none'];
 
     const area     = document.getElementById('layout-area');
     const cards    = [...document.querySelectorAll('.seat-card')];
@@ -386,16 +397,17 @@
     });
 
     // ── 출결 상태 적용 ──
+    function statusToCss(s) { return (s || 'none').replace(/_/g, '-'); }
     function applyStatus(card, status) {
         STATUS_CLASSES.forEach(c => card.classList.remove(c));
-        card.classList.add('status-' + (status || 'none'));
+        card.classList.add('status-' + statusToCss(status));
 
         const uid = card.dataset.userId;
         const dot = document.getElementById('sd-' + uid);
         const lbl = document.getElementById('sl-' + uid);
         if (dot) {
             DOT_CLASSES.forEach(c => dot.classList.remove(c));
-            dot.classList.add('sd-' + (status || 'none'));
+            dot.classList.add('sd-' + statusToCss(status));
         }
         if (lbl) {
             lbl.textContent = STATUS_LABELS[status] || '-';
