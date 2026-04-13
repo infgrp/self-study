@@ -48,6 +48,19 @@
     </div>
 </div>
 
+<!-- ── 통계 바 ── -->
+<div id="stats-bar" class="stats-bar mb-2">
+    <div class="stat-chip chip-present"  id="stat-present">출석 <span class="stat-num" id="cnt-present">-</span></div>
+    <div class="stat-chip chip-late"     id="stat-late">지각 <span class="stat-num" id="cnt-late">-</span></div>
+    <div class="stat-chip chip-absent"   id="stat-absent">결석 <span class="stat-num" id="cnt-absent">-</span></div>
+    <div class="stat-chip chip-early"    id="stat-early">조퇴 <span class="stat-num" id="cnt-early">-</span></div>
+    <div class="stat-chip chip-approved" id="stat-approved">출석인정 <span class="stat-num" id="cnt-approved">-</span></div>
+    <div class="stat-chip chip-after"    id="stat-after">방과후 <span class="stat-num" id="cnt-after">-</span></div>
+    <div class="stat-chip chip-applied"  id="stat-applied">신청 <span class="stat-num" id="cnt-applied">-</span></div>
+    <div class="stat-chip chip-none"     id="stat-none">미신청 <span class="stat-num" id="cnt-none">-</span></div>
+    <div class="ms-auto text-muted small align-self-center" id="stat-total"></div>
+</div>
+
 <!-- ── 범례 ── -->
 <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
     <span class="legend-item male-legend">남</span>
@@ -63,12 +76,13 @@
     <span class="legend-dot ld-none"></span><span class="small">해당없음</span>
     <span class="vr"></span>
     <span class="text-muted small">
-        버튼을 드래그하여 배치 후 <strong>저장</strong>을 누르세요 · 저장된 배치는 모든 교사가 공유됩니다
+        드래그로 위치 조정 · <kbd>Ctrl+S</kbd> 저장 · 저장된 배치는 모든 교사가 공유됩니다
     </span>
 </div>
 
 <!-- ── 배치도 영역 ── -->
 <div id="layout-area" class="layout-area">
+    <div class="layout-back-label">뒤</div>
     {% set has_students = namespace(val=false) %}
     {% for sr in assigned %}
     {% if sr.user %}
@@ -105,19 +119,51 @@
 
 {% block scripts %}
 <style>
+/* ── 통계 바 ── */
+.stats-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+.stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    border: 1.5px solid transparent;
+    white-space: nowrap;
+}
+.stat-num { font-weight: 800; font-size: 12px; }
+.chip-present  { background: #dcfce7; border-color: #16a34a; color: #14532d; }
+.chip-late     { background: #fef3c7; border-color: #d97706; color: #78350f; }
+.chip-absent   { background: #fee2e2; border-color: #dc2626; color: #7f1d1d; }
+.chip-early    { background: #ffedd5; border-color: #ea580c; color: #7c2d12; }
+.chip-approved { background: #cffafe; border-color: #0891b2; color: #164e63; }
+.chip-after    { background: #ede9fe; border-color: #6f42c1; color: #3b0764; }
+.chip-applied  { background: #dbeafe; border-color: #3b82f6; color: #1e3a8a; }
+.chip-none     { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+
 /* ── 배치도 ── */
 .layout-area {
     position: relative;
     width: 100%;
-    height: 620px;
-    background: #f8fafc;
+    height: 640px;
+    background: #f0f4f8;
     border: 2px solid #94a3b8;
     border-radius: 10px;
     overflow: hidden;
     touch-action: none;
     background-image:
-        linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
+        linear-gradient(rgba(148,163,184,0.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148,163,184,0.25) 1px, transparent 1px);
     background-size: 5% calc(100% / 12);
 }
 .layout-area::before {
@@ -125,11 +171,24 @@
     position: absolute;
     top: 0; left: 0; right: 0;
     text-align: center;
-    background: #334155;
-    color: #f1f5f9;
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #e2e8f0;
     font-size: 13px;
+    font-weight: 700;
+    padding: 5px;
+    letter-spacing: 3px;
+    z-index: 5;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.layout-back-label {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    text-align: center;
+    background: rgba(148,163,184,0.25);
+    color: #94a3b8;
+    font-size: 11px;
     font-weight: 600;
-    padding: 4px;
+    padding: 3px;
     letter-spacing: 2px;
     z-index: 5;
 }
@@ -137,68 +196,90 @@
 /* ── 카드 기본 ── */
 .seat-card {
     position: absolute;
-    width: 84px;
-    padding: 5px 4px 4px;
-    border-radius: 8px;
+    width: 88px;
+    padding: 6px 5px 4px;
+    border-radius: 10px;
     cursor: grab;
     user-select: none;
     text-align: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
-    border: 2px solid transparent;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.14), 0 1px 2px rgba(0,0,0,0.08);
+    border: 2.5px solid transparent;
     z-index: 10;
     line-height: 1.3;
-    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+    transition: border-color 0.25s, box-shadow 0.25s, opacity 0.25s, transform 0.15s;
+}
+.seat-card:hover:not(.dragging) {
+    box-shadow: 0 6px 18px rgba(0,0,0,0.22), 0 2px 4px rgba(0,0,0,0.1);
+    transform: translateY(-2px) scale(1.03);
+    z-index: 50;
 }
 .seat-card:active, .seat-card.dragging {
     cursor: grabbing;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.3);
     z-index: 200;
-    transform: scale(1.06);
+    transform: scale(1.08) rotate(1deg);
 }
-.seat-card.male   { background: #dbeafe; color: #1e3a8a; }
-.seat-card.female { background: #fce7f3; color: #831843; }
+.seat-card.male   { background: linear-gradient(160deg, #dbeafe, #bfdbfe); color: #1e3a8a; }
+.seat-card.female { background: linear-gradient(160deg, #fce7f3, #fbcfe8); color: #831843; }
+
+/* ── 상태 변경 flash 애니메이션 ── */
+@keyframes statusFlash {
+    0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.9); }
+    50%  { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+}
+.seat-card.status-flash {
+    animation: statusFlash 0.5s ease-out;
+}
 
 /* ── 출결 상태별 경계선 + 배경 강조 ── */
 .status-present {
     border-color: #16a34a !important;
-    box-shadow: 0 0 0 2px #bbf7d0, 0 2px 6px rgba(0,0,0,0.15);
+    border-style: solid !important;
+    box-shadow: 0 0 0 3px #bbf7d0, 0 2px 8px rgba(0,0,0,0.12);
 }
 .status-late {
     border-color: #d97706 !important;
-    box-shadow: 0 0 0 2px #fde68a, 0 2px 6px rgba(0,0,0,0.15);
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #fde68a, 0 2px 8px rgba(0,0,0,0.12);
 }
 .status-absent {
     border-color: #dc2626 !important;
-    box-shadow: 0 0 0 2px #fecaca, 0 2px 6px rgba(0,0,0,0.15);
-    opacity: 0.85;
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #fecaca, 0 2px 8px rgba(0,0,0,0.12);
+    opacity: 0.8;
 }
 .status-early-leave {
     border-color: #ea580c !important;
-    box-shadow: 0 0 0 2px #fed7aa, 0 2px 6px rgba(0,0,0,0.15);
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #fed7aa, 0 2px 8px rgba(0,0,0,0.12);
 }
 .status-approved-leave {
     border-color: #0891b2 !important;
-    box-shadow: 0 0 0 2px #a5f3fc, 0 2px 6px rgba(0,0,0,0.15);
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #a5f3fc, 0 2px 8px rgba(0,0,0,0.12);
 }
 .status-after-school {
     border-color: #6f42c1 !important;
-    box-shadow: 0 0 0 2px #d8b4fe, 0 2px 6px rgba(0,0,0,0.15);
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #d8b4fe, 0 2px 8px rgba(0,0,0,0.12);
 }
 .status-applied {
     border-color: #3b82f6 !important;
-    box-shadow: 0 0 0 2px #bfdbfe, 0 2px 6px rgba(0,0,0,0.12);
-    border-style: dashed !important;
+    border-style: dotted !important;
+    box-shadow: 0 0 0 3px #bfdbfe, 0 2px 8px rgba(0,0,0,0.10);
 }
 .status-none {
     border-color: #cbd5e1 !important;
-    opacity: 0.55;
+    border-style: dotted !important;
+    opacity: 0.5;
 }
 
 /* ── 카드 내부 텍스트 ── */
-.seat-num   { font-size: 9px;  opacity: 0.65; }
+.seat-num   { font-size: 9px;  opacity: 0.60; letter-spacing: 0.5px; }
 .seat-id    { font-size: 10px; font-weight: 700; }
-.seat-name  { font-size: 13px; font-weight: 800; }
-.seat-grade { font-size: 9px;  opacity: 0.65; }
+.seat-name  { font-size: 13px; font-weight: 800; letter-spacing: -0.3px; }
+.seat-grade { font-size: 9px;  opacity: 0.60; }
 
 /* ── 상태 바 ── */
 .seat-status-bar {
@@ -206,9 +287,9 @@
     align-items: center;
     justify-content: center;
     gap: 3px;
-    margin-top: 3px;
-    padding-top: 2px;
-    border-top: 1px solid rgba(0,0,0,0.10);
+    margin-top: 4px;
+    padding-top: 3px;
+    border-top: 1px solid rgba(0,0,0,0.08);
     font-size: 10px;
     font-weight: 700;
 }
@@ -243,8 +324,8 @@
     line-height: 22px;
     border: 2px solid transparent;
 }
-.male-legend   { background:#dbeafe; border-color:#3b82f6; color:#1e3a8a; }
-.female-legend { background:#fce7f3; border-color:#ec4899; color:#831843; }
+.male-legend   { background: linear-gradient(160deg,#dbeafe,#bfdbfe); border-color:#3b82f6; color:#1e3a8a; }
+.female-legend { background: linear-gradient(160deg,#fce7f3,#fbcfe8); border-color:#ec4899; color:#831843; }
 .legend-dot {
     display: inline-block;
     width: 12px; height: 12px;
@@ -262,7 +343,7 @@
 
 @media (max-width: 576px) {
     .layout-area { height: 70vh; }
-    .seat-card { width: 72px; }
+    .seat-card { width: 74px; }
     .seat-name { font-size: 11px; }
 }
 </style>
@@ -398,20 +479,59 @@
 
     // ── 출결 상태 적용 ──
     function statusToCss(s) { return (s || 'none').replace(/_/g, '-'); }
-    function applyStatus(card, status) {
-        STATUS_CLASSES.forEach(c => card.classList.remove(c));
-        card.classList.add('status-' + statusToCss(status));
 
+    const prevStatus = {};  // user_id → last known status
+
+    function applyStatus(card, status) {
         const uid = card.dataset.userId;
+        const css = statusToCss(status);
+
+        // 이전 상태와 다를 때만 flash
+        if (prevStatus[uid] !== undefined && prevStatus[uid] !== status) {
+            card.classList.remove('status-flash');
+            void card.offsetWidth;  // reflow for re-trigger
+            card.classList.add('status-flash');
+        }
+        prevStatus[uid] = status;
+
+        STATUS_CLASSES.forEach(c => card.classList.remove(c));
+        card.classList.add('status-' + css);
+
         const dot = document.getElementById('sd-' + uid);
         const lbl = document.getElementById('sl-' + uid);
         if (dot) {
             DOT_CLASSES.forEach(c => dot.classList.remove(c));
-            dot.classList.add('sd-' + statusToCss(status));
+            dot.classList.add('sd-' + css);
         }
-        if (lbl) {
-            lbl.textContent = STATUS_LABELS[status] || '-';
-        }
+        if (lbl) lbl.textContent = STATUS_LABELS[status] || '-';
+    }
+
+    // ── 통계 바 업데이트 ──
+    function updateStats(data) {
+        const counts = {
+            present: 0, late: 0, absent: 0, early_leave: 0,
+            approved_leave: 0, after_school: 0, applied: 0, none: 0
+        };
+        cards.forEach(card => {
+            const uid = card.dataset.userId;
+            const info = data[uid];
+            const s = info ? info.overall : 'none';
+            if (s in counts) counts[s]++;
+            else counts.none++;
+        });
+        document.getElementById('cnt-present').textContent  = counts.present;
+        document.getElementById('cnt-late').textContent     = counts.late;
+        document.getElementById('cnt-absent').textContent   = counts.absent;
+        document.getElementById('cnt-early').textContent    = counts.early_leave;
+        document.getElementById('cnt-approved').textContent = counts.approved_leave;
+        document.getElementById('cnt-after').textContent    = counts.after_school;
+        document.getElementById('cnt-applied').textContent  = counts.applied;
+        document.getElementById('cnt-none').textContent     = counts.none;
+
+        const total = cards.length;
+        const active = counts.present + counts.after_school + counts.approved_leave + counts.late;
+        document.getElementById('stat-total').textContent =
+            `총 ${total}명 · 출석권 ${active}명`;
     }
 
     // ── 출결 현황 조회 ──
@@ -440,6 +560,7 @@
                     card.title = '';
                 }
             });
+            updateStats(d.data);
             lastUpd.textContent = new Date().toLocaleTimeString('ko-KR');
         })
         .catch(() => {
@@ -459,6 +580,14 @@
 
     autoRefChk.addEventListener('change', function () {
         if (this.checked) startPoll(); else stopPoll();
+    });
+
+    // ── Ctrl+S 저장 단축키 ──
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            document.getElementById('btn-save').click();
+        }
     });
 
     // ── 초기 조회 ──
