@@ -410,9 +410,24 @@ def after_school_attendance():
             db.session.add(StudyApplication(
                 user_id=sc.user_id, date=view_date, period=sc.period))
 
-        # 출석 없으면 after_school 생성
-        if not Attendance.query.filter_by(
-                user_id=sc.user_id, date=view_date, period=sc.period).first():
+        # 기존 출결 여부와 관계없이 after_school 처리
+        existing = Attendance.query.filter_by(
+                user_id=sc.user_id, date=view_date, period=sc.period).first()
+        if existing:
+            # 이미 after_school이면 건너뜀
+            if existing.status != 'after_school':
+                old_status = existing.status
+                existing.status = 'after_school'
+                db.session.flush()
+                db.session.add(AttendanceLog(
+                    attendance_id=existing.id,
+                    changed_by=current_user.id,
+                    old_status=old_status,
+                    new_status='after_school',
+                    note='방과후자동출석',
+                ))
+                processed += 1
+        else:
             sr = StudentRoom.query.filter_by(user_id=sc.user_id).first()
             att = Attendance(
                 user_id=sc.user_id, date=view_date, period=sc.period,
