@@ -109,6 +109,7 @@
                 {% for room, assigned in rooms_with_seats %}
                 <div class="tab-pane fade {{ 'show active' if loop.first }}" id="rl-room-{{ room.id }}" role="tabpanel">
                     <div class="seat-layout-ro" id="rl-area-{{ room.id }}" data-room-id="{{ room.id }}">
+                        <div class="seat-layout-ro-back">뒤</div>
                         {% set has_seats = namespace(val=false) %}
                         {% for sr in assigned %}
                         {% if sr.user and sr.pos_x is not none %}
@@ -521,13 +522,13 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
     position: relative;
     width: 100%;
     height: 480px;
-    background: #f8fafc;
+    background: #f0f4f8;
     border: 2px solid #94a3b8;
     border-radius: 10px;
     overflow: hidden;
     background-image:
-        linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
+        linear-gradient(rgba(148,163,184,0.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148,163,184,0.25) 1px, transparent 1px);
     background-size: 5% calc(100% / 12);
 }
 .seat-layout-ro::before {
@@ -535,47 +536,65 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
     position: absolute;
     top: 0; left: 0; right: 0;
     text-align: center;
-    background: #334155;
-    color: #f1f5f9;
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #e2e8f0;
     font-size: 13px;
+    font-weight: 700;
+    padding: 5px;
+    letter-spacing: 3px;
+    z-index: 5;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.seat-layout-ro-back {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    text-align: center;
+    background: rgba(148,163,184,0.25);
+    color: #94a3b8;
+    font-size: 11px;
     font-weight: 600;
-    padding: 4px;
+    padding: 3px;
     letter-spacing: 2px;
     z-index: 5;
 }
 .seat-card-ro {
     position: absolute;
-    width: 84px;
-    padding: 5px 4px 4px;
-    border-radius: 8px;
+    width: 88px;
+    padding: 6px 5px 4px;
+    border-radius: 10px;
     user-select: none;
     text-align: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
-    border: 2px solid transparent;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.14), 0 1px 2px rgba(0,0,0,0.08);
+    border: 2.5px solid transparent;
     z-index: 10;
     line-height: 1.3;
-    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+    transition: border-color 0.25s, box-shadow 0.25s, opacity 0.25s;
 }
-.seat-card-ro.male   { background: #dbeafe; color: #1e3a8a; }
-.seat-card-ro.female { background: #fce7f3; color: #831843; }
-/* 출결 상태별 경계선 */
-.seat-card-ro.status-present      { border-color: #16a34a !important; box-shadow: 0 0 0 2px #bbf7d0, 0 2px 6px rgba(0,0,0,0.15); }
-.seat-card-ro.status-late         { border-color: #d97706 !important; box-shadow: 0 0 0 2px #fde68a, 0 2px 6px rgba(0,0,0,0.15); }
-.seat-card-ro.status-absent       { border-color: #dc2626 !important; box-shadow: 0 0 0 2px #fecaca, 0 2px 6px rgba(0,0,0,0.15); opacity: 0.85; }
-.seat-card-ro.status-early-leave  { border-color: #ea580c !important; box-shadow: 0 0 0 2px #fed7aa, 0 2px 6px rgba(0,0,0,0.15); }
-.seat-card-ro.status-approved-leave { border-color: #0891b2 !important; box-shadow: 0 0 0 2px #a5f3fc, 0 2px 6px rgba(0,0,0,0.15); }
-.seat-card-ro.status-after-school { border-color: #6f42c1 !important; box-shadow: 0 0 0 2px #d8b4fe, 0 2px 6px rgba(0,0,0,0.15); }
-.seat-card-ro.status-applied      { border-color: #3b82f6 !important; box-shadow: 0 0 0 2px #bfdbfe, 0 2px 6px rgba(0,0,0,0.12); border-style: dashed !important; }
-.seat-card-ro.status-none         { border-color: #cbd5e1 !important; opacity: 0.55; }
+.seat-card-ro:hover {
+    box-shadow: 0 6px 18px rgba(0,0,0,0.22), 0 2px 4px rgba(0,0,0,0.1);
+    transform: translateY(-2px) scale(1.03);
+    z-index: 50;
+}
+.seat-card-ro.male   { background: linear-gradient(160deg, #dbeafe, #bfdbfe); color: #1e3a8a; }
+.seat-card-ro.female { background: linear-gradient(160deg, #fce7f3, #fbcfe8); color: #831843; }
+/* 출결 상태별 경계선 — 출석만 solid, 나머지 dotted */
+.seat-card-ro.status-present      { border-color: #16a34a !important; border-style: solid !important;  box-shadow: 0 0 0 3px #bbf7d0, 0 2px 8px rgba(0,0,0,0.12); }
+.seat-card-ro.status-late         { border-color: #d97706 !important; border-style: dotted !important; box-shadow: 0 0 0 3px #fde68a, 0 2px 8px rgba(0,0,0,0.12); }
+.seat-card-ro.status-absent       { border-color: #dc2626 !important; border-style: dotted !important; box-shadow: 0 0 0 3px #fecaca, 0 2px 8px rgba(0,0,0,0.12); opacity: 0.8; }
+.seat-card-ro.status-early-leave  { border-color: #ea580c !important; border-style: dotted !important; box-shadow: 0 0 0 3px #fed7aa, 0 2px 8px rgba(0,0,0,0.12); }
+.seat-card-ro.status-approved-leave { border-color: #0891b2 !important; border-style: dotted !important; box-shadow: 0 0 0 3px #a5f3fc, 0 2px 8px rgba(0,0,0,0.12); }
+.seat-card-ro.status-after-school { border-color: #6f42c1 !important; border-style: dotted !important; box-shadow: 0 0 0 3px #d8b4fe, 0 2px 8px rgba(0,0,0,0.12); }
+.seat-card-ro.status-applied      { border-color: #3b82f6 !important; border-style: dotted !important; box-shadow: 0 0 0 3px #bfdbfe, 0 2px 8px rgba(0,0,0,0.10); }
+.seat-card-ro.status-none         { border-color: #cbd5e1 !important; border-style: dotted !important; opacity: 0.5; }
 /* 카드 내부 */
-.sro-num   { font-size: 9px;  opacity: 0.65; }
+.sro-num   { font-size: 9px;  opacity: 0.60; letter-spacing: 0.5px; }
 .sro-id    { font-size: 10px; font-weight: 700; }
-.sro-name  { font-size: 13px; font-weight: 800; }
-.sro-grade { font-size: 9px;  opacity: 0.65; }
+.sro-name  { font-size: 13px; font-weight: 800; letter-spacing: -0.3px; }
+.sro-grade { font-size: 9px;  opacity: 0.60; }
 .sro-status-bar {
     display: flex; align-items: center; justify-content: center;
-    gap: 3px; margin-top: 3px; padding-top: 2px;
-    border-top: 1px solid rgba(0,0,0,0.10);
+    gap: 3px; margin-top: 4px; padding-top: 3px;
+    border-top: 1px solid rgba(0,0,0,0.08);
     font-size: 10px; font-weight: 700;
 }
 .status-dot-ro {
@@ -594,7 +613,7 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
 .sro-label { line-height: 1; }
 @media (max-width: 576px) {
     .seat-layout-ro { height: 60vh; }
-    .seat-card-ro { width: 72px; }
+    .seat-card-ro { width: 74px; }
     .sro-name { font-size: 11px; }
 }
 </style>
