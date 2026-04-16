@@ -1310,6 +1310,77 @@ Excel 파일 구성은 다음과 같습니다.
 \end{tabular}
 \end{center}
 
+\subsubsection{기간별 전체 출결 Excel 내보내기}
+
+날짜 범위와 교시를 직접 지정하여 전체 학생의 출결 현황을 한 파일로 내보냅니다.
+자습실 구분 없이 모든 학생이 포함됩니다.
+
+\begin{enumerate}[leftmargin=1.5em]
+    \item 출석 관리 페이지 우측 상단의 \menu{📊 기간별 출결 Excel} 버튼을 클릭합니다.
+    \item 팝업 창에서 \textbf{시작일}과 \textbf{종료일}을 입력합니다.
+    \item 내보낼 \textbf{교시}를 체크박스로 선택합니다 (기본: 전체 선택).
+    \item \menu{📥 Excel 다운로드} 버튼을 클릭하면 파일이 자동으로 다운로드됩니다.
+\end{enumerate}
+
+\textbf{Excel 파일 행 구조}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{행} & \textbf{내용} \\
+\midrule
+1행 & 제목 (기간 및 선택 교시 표시) \\
+2행 & 날짜 병합 헤더 (예: \texttt{04/15 (화)}) \\
+3행 & 교시 헤더 (예: \texttt{1교시}, \texttt{2교시}) \\
+4행 & \textbf{감독교사 서명} 칸 --- 고정열 병합 레이블 + 교시별 서명 공간 (연노랑 배경) \\
+5행$\sim$ & 학생별 출결 데이터 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{열 구성}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{열} & \textbf{내용} \\
+\midrule
+A (이름) & 학생 성명 \\
+B (학번) & 5자리 학번 \\
+C (학년) & 학년 \\
+D (반) & 반 번호 \\
+E (자습공간) & 배정된 자습실 (미배정이면 ``미배정'') \\
+F열 이후 & 날짜 × 교시별 출결 상태 (색상 구분) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+출결 상태별 셀 색상은 다음과 같습니다.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{상태} & \textbf{색상} \\
+\midrule
+출석 & 연초록 \\
+지각 & 연노랑 \\
+결석 & 연빨강 \\
+조퇴 & 연주황 \\
+출석인정 & 연파랑 \\
+방과후출결인정 & 연보라 \\
+기록 없음 & \texttt{-} (색상 없음) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+날짜 경계마다 굵은 세로선이 표시되어 날짜 구분이 명확합니다.
+파일명 형식: \texttt{출결현황\_YYYYMMDD\_YYYYMMDD.xlsx}
+
+\begin{notebox}
+  교시를 선택하지 않으면 다운로드가 실행되지 않습니다.
+  기간이 길수록 파일 크기가 커지며 생성에 시간이 걸릴 수 있습니다.
+\end{notebox}
+
 \subsection{학생 개인 리포트}
 
 학생별 월별 자습 참여 현황을 상세하게 조회합니다.
