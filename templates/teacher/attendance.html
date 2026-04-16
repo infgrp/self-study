@@ -232,6 +232,10 @@
                                 is_saturday='on' if is_saturday else '',
                                 is_holiday='on' if is_holiday else '') }}"
                class="btn btn-sm btn-outline-success">📥 Excel</a>
+            <button type="button" class="btn btn-sm btn-outline-primary"
+                    data-bs-toggle="modal" data-bs-target="#rangeExcelModal">
+                📊 기간별 출결 Excel
+            </button>
             <form method="POST" action="{{ url_for('teacher.attendance_auto_process') }}" class="d-inline">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="date" value="{{ view_date.isoformat() }}">
@@ -711,4 +715,95 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
 })();
 </script>
 {% endif %}
+
+<!-- ── 기간별 출결 Excel 모달 ── -->
+<div class="modal fade" id="rangeExcelModal" tabindex="-1" aria-labelledby="rangeExcelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rangeExcelModalLabel">📊 기간별 출결 Excel 내보내기</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="rangeExcelForm" method="GET" action="{{ url_for('teacher.export_attendance_range') }}">
+            <div class="modal-body">
+                <!-- 기간 선택 -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">기간</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="date" name="date_from" id="range-from"
+                               class="form-control" value="{{ view_date.isoformat() }}" required>
+                        <span class="text-muted">~</span>
+                        <input type="date" name="date_to" id="range-to"
+                               class="form-control" value="{{ view_date.isoformat() }}" required>
+                    </div>
+                </div>
+
+                <!-- 교시 선택 -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">교시 선택</label>
+                    {% if all_active_periods %}
+                    <div class="d-flex gap-3 flex-wrap">
+                        {% for p in all_active_periods %}
+                        <div class="form-check">
+                            <input class="form-check-input period-check" type="checkbox"
+                                   name="periods" value="{{ p }}" id="period-check-{{ p }}" checked>
+                            <label class="form-check-label" for="period-check-{{ p }}">
+                                {{ p }}교시
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="check-all-periods">전체 선택</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="uncheck-all-periods">전체 해제</button>
+                    </div>
+                    {% else %}
+                    <div class="text-muted small">활성화된 교시가 없습니다. 설정 페이지에서 교시를 먼저 활성화하세요.</div>
+                    {% endif %}
+                </div>
+
+                <div class="alert alert-info small mb-0 py-2">
+                    <strong>안내:</strong> 자습실 구분 없이 전체 학생의 출결 현황을 내보냅니다.
+                    날짜가 길수록 파일 생성에 시간이 걸릴 수 있습니다.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="submit" class="btn btn-primary" id="range-excel-submit">
+                    📥 Excel 다운로드
+                </button>
+            </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    // 전체 선택 / 해제
+    document.getElementById('check-all-periods')?.addEventListener('click', function() {
+        document.querySelectorAll('.period-check').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('uncheck-all-periods')?.addEventListener('click', function() {
+        document.querySelectorAll('.period-check').forEach(cb => cb.checked = false);
+    });
+
+    // 제출 전 교시 선택 여부 확인
+    document.getElementById('rangeExcelForm')?.addEventListener('submit', function(e) {
+        const checked = document.querySelectorAll('.period-check:checked');
+        if (checked.length === 0) {
+            e.preventDefault();
+            alert('교시를 하나 이상 선택하세요.');
+            return;
+        }
+        const from = document.getElementById('range-from').value;
+        const to   = document.getElementById('range-to').value;
+        if (from && to && from > to) {
+            e.preventDefault();
+            alert('시작 날짜가 종료 날짜보다 늦을 수 없습니다.');
+            return;
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -568,6 +568,10 @@ def attendance_view():
                     .all())
         rooms_with_seats.append((room, assigned))
 
+    all_active_periods = sorted({
+        s.period for s in StudyPeriodSetting.query.filter_by(is_active=True).all()
+    })
+
     return render_template('teacher/attendance.html',
                            view_date=view_date,
                            students=student_list,
@@ -588,7 +592,8 @@ def attendance_view():
                            room_summary=room_summary,
                            total_students=total_students,
                            total_present=total_present,
-                           rooms_with_seats=rooms_with_seats)
+                           rooms_with_seats=rooms_with_seats,
+                           all_active_periods=all_active_periods)
 
 
 @teacher_bp.route('/attendance/update', methods=['POST'])
@@ -1573,6 +1578,171 @@ def export_attendance():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
         download_name=f'출석부_{view_date.strftime("%Y%m%d")}.xlsx')
+
+
+@teacher_bp.route('/export/attendance_range')
+def export_attendance_range():
+    """기간별 전체 출결 현황 Excel 다운로드 (자습실 구분 없음)"""
+    try:
+        date_from = date.fromisoformat(request.args.get('date_from', ''))
+        date_to   = date.fromisoformat(request.args.get('date_to', ''))
+    except ValueError:
+        flash('날짜 형식이 올바르지 않습니다.', 'danger')
+        return redirect(url_for('teacher.attendance_view'))
+
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    # 선택된 교시 파싱
+    selected_periods = sorted(
+        int(p) for p in request.args.getlist('periods') if p.isdigit()
+    )
+    if not selected_periods:
+        flash('교시를 하나 이상 선택하세요.', 'warning')
+        return redirect(url_for('teacher.attendance_view'))
+
+    # 날짜 목록 (토·일 제외 옵션 없이 전부 포함)
+    delta = (date_to - date_from).days + 1
+    date_list = [date_from + timedelta(days=i) for i in range(delta)]
+
+    # 학생 목록 (학년·반·이름 순)
+    students = (User.query
+                .filter_by(role='student')
+                .order_by(User.grade, User.class_num, User.name)
+                .all())
+
+    # 자습실 맵
+    room_map = {r.id: r.name for r in StudyRoom.query.all()}
+    sr_map   = {sr.user_id: sr.study_room_id for sr in StudentRoom.query.all()}
+
+    # 출결 데이터 한 번에 조회
+    att_records = (Attendance.query
+                   .filter(Attendance.date >= date_from,
+                           Attendance.date <= date_to,
+                           Attendance.period.in_(selected_periods))
+                   .all())
+    att_map = {(a.user_id, a.date, a.period): a for a in att_records}
+
+    status_text  = {'present': '출석', 'late': '지각', 'absent': '결석',
+                    'early_leave': '조퇴', 'approved_leave': '출석인정',
+                    'after_school': '방과후출결인정'}
+    status_color = {'present': 'C6EFCE', 'late': 'FFEB9C', 'absent': 'FFC7CE',
+                    'early_leave': 'F4CCCC', 'approved_leave': 'CFE2F3',
+                    'after_school': 'D9C8F5'}
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '기간별출결'
+
+    center  = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    hfill   = PatternFill(fill_type='solid', fgColor='4472C4')
+    dfill   = PatternFill(fill_type='solid', fgColor='D9E1F2')  # 날짜 구분 색
+
+    # ── 고정 헤더 열 ──
+    fixed_headers = ['이름', '학번', '학년', '반', '자습공간']
+    FIXED = len(fixed_headers)  # 5
+
+    # ── 날짜×교시 헤더 열 생성 ──
+    date_period_cols = []   # (date_obj, period)
+    for d in date_list:
+        for p in selected_periods:
+            date_period_cols.append((d, p))
+
+    total_cols = FIXED + len(date_period_cols)
+
+    # 1행: 제목
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+    t = ws.cell(row=1, column=1,
+                value=f'{date_from.strftime("%Y.%m.%d")} ~ {date_to.strftime("%Y.%m.%d")} 출결 현황 ({", ".join(str(p)+"교시" for p in selected_periods)})')
+    t.font = Font(bold=True, size=13)
+    t.alignment = center
+
+    # 2행: 날짜 병합 헤더
+    ws.row_dimensions[2].height = 18
+    for col, h in enumerate(fixed_headers, 1):
+        ws.merge_cells(start_row=2, start_column=col, end_row=3, end_column=col)
+        c = ws.cell(row=2, column=col, value=h)
+        c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = center
+        c.fill = hfill
+
+    col_idx = FIXED + 1
+    for d in date_list:
+        span = len(selected_periods)
+        ws.merge_cells(start_row=2, start_column=col_idx,
+                        end_row=2, end_column=col_idx + span - 1)
+        dc = ws.cell(row=2, column=col_idx,
+                     value=d.strftime('%m/%d (%a)').replace('Mon','월').replace('Tue','화')
+                           .replace('Wed','수').replace('Thu','목').replace('Fri','금')
+                           .replace('Sat','토').replace('Sun','일'))
+        dc.font = Font(bold=True, color='FFFFFF')
+        dc.alignment = center
+        dc.fill = hfill
+        col_idx += span
+
+    # 3행: 교시 헤더
+    ws.row_dimensions[3].height = 16
+    for col in range(1, FIXED + 1):
+        c = ws.cell(row=3, column=col)
+        c.font = Font(bold=True, color='FFFFFF')
+        c.fill = hfill
+        c.alignment = center
+
+    for i, (d, p) in enumerate(date_period_cols):
+        c = ws.cell(row=3, column=FIXED + 1 + i, value=f'{p}교시')
+        c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = center
+        c.fill = hfill
+
+    # 4행~: 학생 데이터
+    for ri, s in enumerate(students, 4):
+        room_id = sr_map.get(s.id)
+        ws.cell(ri, 1, s.name)
+        ws.cell(ri, 2, s.student_id or '')
+        ws.cell(ri, 3, f'{s.grade}학년')
+        ws.cell(ri, 4, f'{s.class_num}반')
+        ws.cell(ri, 5, room_map.get(room_id, '미배정') if room_id else '미배정')
+        for col, (_, alignment) in enumerate(zip(range(1, FIXED + 1), [Alignment(horizontal='center')] * FIXED), 1):
+            ws.cell(ri, col).alignment = Alignment(horizontal='center', vertical='center')
+
+        for i, (d, p) in enumerate(date_period_cols):
+            att = att_map.get((s.id, d, p))
+            st  = att.status if att else None
+            cell = ws.cell(ri, FIXED + 1 + i, status_text.get(st, '-'))
+            cell.alignment = center
+            if st in status_color:
+                cell.fill = PatternFill(fill_type='solid', fgColor=status_color[st])
+
+    # ── 열 너비 ──
+    ws.column_dimensions['A'].width = 10
+    ws.column_dimensions['B'].width = 8
+    ws.column_dimensions['C'].width = 7
+    ws.column_dimensions['D'].width = 5
+    ws.column_dimensions['E'].width = 12
+    for i in range(len(date_period_cols)):
+        col_letter = openpyxl.utils.get_column_letter(FIXED + 1 + i)
+        ws.column_dimensions[col_letter].width = 8
+
+    # ── 날짜 경계 열에 우측 테두리 강조 ──
+    from openpyxl.styles import Border, Side
+    thick = Side(style='medium', color='4472C4')
+    thin  = Side(style='thin',   color='BFBFBF')
+    for ri in range(2, 4 + len(students)):
+        for i, (d, p) in enumerate(date_period_cols):
+            cell = ws.cell(ri, FIXED + 1 + i)
+            is_last_period = (p == selected_periods[-1])
+            is_not_last_col = (FIXED + 1 + i < total_cols)
+            right_side = thick if (is_last_period and is_not_last_col) else thin
+            cell.border = Border(right=right_side, top=thin, bottom=thin, left=thin)
+
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+    fname = f'출결현황_{date_from.strftime("%Y%m%d")}_{date_to.strftime("%Y%m%d")}.xlsx'
+    return send_file(out,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=fname)
 
 
 @teacher_bp.route('/export/statistics')
