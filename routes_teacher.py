@@ -1694,15 +1694,51 @@ def export_attendance_range():
         c.alignment = center
         c.fill = hfill
 
-    # 4행~: 학생 데이터
-    for ri, s in enumerate(students, 4):
+    # 4행: 감독교사 서명 행
+    from openpyxl.styles import Border, Side
+    thick  = Side(style='medium', color='4472C4')
+    thin   = Side(style='thin',   color='BFBFBF')
+    medium = Side(style='medium', color='000000')
+
+    ws.row_dimensions[4].height = 45
+    sfill = PatternFill(fill_type='solid', fgColor='FFF2CC')   # 연노랑 배경
+
+    # 고정열(A-E): 병합 후 레이블
+    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=FIXED)
+    lc = ws.cell(row=4, column=1, value='감독교사 서명')
+    lc.font = Font(bold=True, size=10)
+    lc.alignment = Alignment(horizontal='center', vertical='center')
+    lc.fill = sfill
+    lc.border = Border(top=medium, bottom=medium, left=medium, right=thin)
+
+    # 교시별 서명 칸: 각 날짜의 첫 교시에 날짜 레이블, 나머지는 서명 공간
+    for i, (d, p) in enumerate(date_period_cols):
+        col = FIXED + 1 + i
+        is_first_period = (p == selected_periods[0])
+        is_last_period  = (p == selected_periods[-1])
+        is_last_col     = (col == total_cols)
+
+        label = f'{p}교시\n(서명)' if len(selected_periods) > 1 else '(서명)'
+        sc = ws.cell(row=4, column=col, value=label)
+        sc.font = Font(size=8, color='7F7F7F')
+        sc.alignment = Alignment(horizontal='center', vertical='bottom', wrap_text=True)
+        sc.fill = sfill
+        right_side = medium if (is_last_period and not is_last_col) else (medium if is_last_col else thin)
+        sc.border = Border(
+            top=medium, bottom=medium,
+            left=medium if is_first_period else thin,
+            right=right_side,
+        )
+
+    # 5행~: 학생 데이터
+    for ri, s in enumerate(students, 5):
         room_id = sr_map.get(s.id)
         ws.cell(ri, 1, s.name)
         ws.cell(ri, 2, s.student_id or '')
         ws.cell(ri, 3, f'{s.grade}학년')
         ws.cell(ri, 4, f'{s.class_num}반')
         ws.cell(ri, 5, room_map.get(room_id, '미배정') if room_id else '미배정')
-        for col, (_, alignment) in enumerate(zip(range(1, FIXED + 1), [Alignment(horizontal='center')] * FIXED), 1):
+        for col in range(1, FIXED + 1):
             ws.cell(ri, col).alignment = Alignment(horizontal='center', vertical='center')
 
         for i, (d, p) in enumerate(date_period_cols):
@@ -1723,14 +1759,13 @@ def export_attendance_range():
         col_letter = openpyxl.utils.get_column_letter(FIXED + 1 + i)
         ws.column_dimensions[col_letter].width = 8
 
-    # ── 날짜 경계 열에 우측 테두리 강조 ──
-    from openpyxl.styles import Border, Side
-    thick = Side(style='medium', color='4472C4')
-    thin  = Side(style='thin',   color='BFBFBF')
-    for ri in range(2, 4 + len(students)):
+    # ── 날짜 경계에 굵은 세로선 (2행~마지막 학생행) ──
+    for ri in range(2, 5 + len(students)):
+        if ri == 4:
+            continue   # 서명 행은 위에서 이미 처리
         for i, (d, p) in enumerate(date_period_cols):
             cell = ws.cell(ri, FIXED + 1 + i)
-            is_last_period = (p == selected_periods[-1])
+            is_last_period  = (p == selected_periods[-1])
             is_not_last_col = (FIXED + 1 + i < total_cols)
             right_side = thick if (is_last_period and is_not_last_col) else thin
             cell.border = Border(right=right_side, top=thin, bottom=thin, left=thin)
