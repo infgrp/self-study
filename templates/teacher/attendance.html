@@ -78,9 +78,8 @@
         <span class="fw-semibold">좌석 배치 현황</span>
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <select id="sl-period" class="form-select form-select-sm" style="width:140px;">
-                <option value="">전체 교시</option>
                 {% for period, times in period_times.items() %}
-                <option value="{{ period }}">{{ period }}교시 ({{ times[0] }}~{{ times[1] }})</option>
+                <option value="{{ period }}" {{ 'selected' if period == default_period }}>{{ period }}교시 ({{ times[0] }}~{{ times[1] }})</option>
                 {% endfor %}
             </select>
             <button id="sl-refresh" class="btn btn-sm btn-outline-info">⟳ 갱신</button>

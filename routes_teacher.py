@@ -572,6 +572,23 @@ def attendance_view():
         s.period for s in StudyPeriodSetting.query.filter_by(is_active=True).all()
     })
 
+    # 현재 시간에 맞는 기본 교시 결정 (오늘 화면인 경우에만 적용)
+    now_str = datetime.now().strftime('%H:%M')
+    sorted_pts = sorted(period_times.items())
+    default_period = None
+    if sorted_pts:
+        for p, (s, e) in sorted_pts:
+            if s <= now_str <= e:
+                default_period = p
+                break
+        if default_period is None:
+            for p, (s, e) in sorted_pts:
+                if now_str < s:
+                    default_period = p
+                    break
+        if default_period is None:
+            default_period = sorted_pts[-1][0]
+
     return render_template('teacher/attendance.html',
                            view_date=view_date,
                            students=student_list,
@@ -593,7 +610,8 @@ def attendance_view():
                            total_students=total_students,
                            total_present=total_present,
                            rooms_with_seats=rooms_with_seats,
-                           all_active_periods=all_active_periods)
+                           all_active_periods=all_active_periods,
+                           default_period=default_period)
 
 
 @teacher_bp.route('/attendance/update', methods=['POST'])
