@@ -1619,15 +1619,18 @@ def export_attendance_range():
         flash('교시를 하나 이상 선택하세요.', 'warning')
         return redirect(url_for('teacher.attendance_view'))
 
+    # 학년 필터 (0 또는 미지정 → 전체)
+    grade_filter = request.args.get('grade', type=int)
+
     # 날짜 목록 (토·일 제외 옵션 없이 전부 포함)
     delta = (date_to - date_from).days + 1
     date_list = [date_from + timedelta(days=i) for i in range(delta)]
 
     # 학생 목록 (학년·반·이름 순)
-    students = (User.query
-                .filter_by(role='student')
-                .order_by(User.grade, User.class_num, User.name)
-                .all())
+    sq = User.query.filter_by(role='student')
+    if grade_filter:
+        sq = sq.filter_by(grade=grade_filter)
+    students = sq.order_by(User.grade, User.class_num, User.name).all()
 
     # 자습실 맵
     room_map = {r.id: r.name for r in StudyRoom.query.all()}
@@ -1670,8 +1673,9 @@ def export_attendance_range():
 
     # 1행: 제목
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
+    grade_label = f'{grade_filter}학년 ' if grade_filter else '전체 학년 '
     t = ws.cell(row=1, column=1,
-                value=f'{date_from.strftime("%Y.%m.%d")} ~ {date_to.strftime("%Y.%m.%d")} 출결 현황 ({", ".join(str(p)+"교시" for p in selected_periods)})')
+                value=f'{grade_label}{date_from.strftime("%Y.%m.%d")} ~ {date_to.strftime("%Y.%m.%d")} 출결 현황 ({", ".join(str(p)+"교시" for p in selected_periods)})')
     t.font = Font(bold=True, size=13)
     t.alignment = center
 
@@ -1791,7 +1795,8 @@ def export_attendance_range():
     out = BytesIO()
     wb.save(out)
     out.seek(0)
-    fname = f'출결현황_{date_from.strftime("%Y%m%d")}_{date_to.strftime("%Y%m%d")}.xlsx'
+    grade_suffix = f'_{grade_filter}학년' if grade_filter else ''
+    fname = f'출결현황{grade_suffix}_{date_from.strftime("%Y%m%d")}_{date_to.strftime("%Y%m%d")}.xlsx'
     return send_file(out,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,

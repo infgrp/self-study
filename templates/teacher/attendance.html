@@ -725,6 +725,33 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
             </div>
             <form id="rangeExcelForm" method="GET" action="{{ url_for('teacher.export_attendance_range') }}">
             <div class="modal-body">
+                <!-- 학년 선택 -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">학년 선택</label>
+                    <div class="d-flex gap-3 flex-wrap">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="grade"
+                                   value="" id="grade-all" checked>
+                            <label class="form-check-label" for="grade-all">전체</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="grade"
+                                   value="1" id="grade-1">
+                            <label class="form-check-label" for="grade-1">1학년</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="grade"
+                                   value="2" id="grade-2">
+                            <label class="form-check-label" for="grade-2">2학년</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="grade"
+                                   value="3" id="grade-3">
+                            <label class="form-check-label" for="grade-3">3학년</label>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 기간 선택 -->
                 <div class="mb-3">
                     <label class="form-label fw-semibold">기간</label>
@@ -762,8 +789,8 @@ document.querySelectorAll('select[name="status"]').forEach(function(sel) {
                 </div>
 
                 <div class="alert alert-info small mb-0 py-2">
-                    <strong>안내:</strong> 자습실 구분 없이 전체 학생의 출결 현황을 내보냅니다.
-                    날짜가 길수록 파일 생성에 시간이 걸릴 수 있습니다.
+                    <strong>안내:</strong> 자습실 구분 없이 선택한 학년의 출결 현황을 내보냅니다.
+                    날짜 범위가 길수록 파일 생성에 시간이 걸릴 수 있습니다.
                 </div>
             </div>
             <div class="modal-footer">
