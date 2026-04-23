@@ -3,18 +3,19 @@
 """
 
 import os
-import re
 import secrets
-import shutil
 import sqlite3
-import string
 import tempfile
 from datetime import datetime
 from io import BytesIO
 from flask import Blueprint, render_template, redirect, url_for, request, flash, send_file
 from flask_login import login_required, current_user
-from models import db, User, Schedule, Attendance, StudyLog, StudentRoom, StudyRoom, StudyApplication, AttendanceLog, Holiday, StudyPeriodSetting
-from werkzeug.security import generate_password_hash
+from models import db, User, Schedule, Attendance, StudyLog, StudentRoom, StudyRoom, StudyApplication, AttendanceLog, Holiday, StudyPeriodSetting, SystemSetting
+import settings
+from settings import SETTINGS_SCHEMA
+from validators import validate_password, validate_student_id, generate_temp_password
+from time_utils import validate_time_str, parse_time_str
+from audit import log_audit
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
@@ -112,6 +113,84 @@ def revoke_teacher(user_id):
     return redirect(url_for('admin_bp.teachers'))
 
 
+@admin_bp.route('/system-settings', methods=['GET', 'POST'])
+def system_settings():
+    """시스템 운영 설정 - 정책값 일괄 조회/수정"""
+    if request.method == 'POST':
+        errors = []
+        changed = 0
+        for spec in SETTINGS_SCHEMA:
+            key = spec['key']
+            raw = request.form.get(key)
+            if raw is None:
+                continue
+            raw = raw.strip()
+
+            # 타입별 검증
+            if spec['type'] == 'int':
+                try:
+                    val = int(raw)
+                except ValueError:
+                    errors.append(f"{spec['description']}: 정수가 아닙니다 ({raw!r})")
+                    continue
+                if spec['min'] is not None and val < spec['min']:
+                    errors.append(f"{spec['description']}: 최소 {spec['min']} 이상이어야 합니다")
+                    continue
+                if spec['max'] is not None and val > spec['max']:
+                    errors.append(f"{spec['description']}: 최대 {spec['max']} 이하여야 합니다")
+                    continue
+                normalized = str(val)
+            elif spec['type'] == 'bool':
+                # 체크박스 미체크 시 form에서 키 자체가 누락되므로 별도 처리
+                normalized = 'true' if raw.lower() in ('true', '1', 'on', 'yes') else 'false'
+            else:
+                normalized = raw
+
+            row = SystemSetting.query.filter_by(key=key).first()
+            if row and row.value != normalized:
+                row.value = normalized
+                row.updated_by = current_user.id
+                changed += 1
+
+        # 체크박스가 unchecked로 들어온 bool 키 처리
+        for spec in SETTINGS_SCHEMA:
+            if spec['type'] != 'bool':
+                continue
+            if request.form.get(spec['key']) is None:
+                row = SystemSetting.query.filter_by(key=spec['key']).first()
+                if row and row.value != 'false':
+                    row.value = 'false'
+                    row.updated_by = current_user.id
+                    changed += 1
+
+        if errors:
+            db.session.rollback()
+            for msg in errors:
+                flash(msg, 'danger')
+        else:
+            db.session.commit()
+            if changed:
+                flash(f'시스템 설정 {changed}개 항목이 변경되었습니다.', 'success')
+            else:
+                flash('변경된 항목이 없습니다.', 'info')
+        return redirect(url_for('admin_bp.system_settings'))
+
+    rows = []
+    for spec in SETTINGS_SCHEMA:
+        row = SystemSetting.query.filter_by(key=spec['key']).first()
+        rows.append({
+            'key': spec['key'],
+            'description': spec['description'],
+            'type': spec['type'],
+            'min': spec['min'],
+            'max': spec['max'],
+            'value': row.value if row else spec['default'],
+            'updated_at': row.updated_at if row else None,
+            'updated_by': row.updater.name if (row and row.updater) else None,
+        })
+    return render_template('admin/system_settings.html', rows=rows)
+
+
 @admin_bp.route('/change-password', methods=['GET', 'POST'])
 def change_password():
     """관리자 비밀번호 변경"""
@@ -128,9 +207,9 @@ def change_password():
             flash('새 비밀번호가 일치하지 않습니다.', 'danger')
             return render_template('admin/change_password.html')
 
-        if len(new_pw) < 8 or not any(c.isdigit() for c in new_pw) \
-                or not any(c.isalpha() for c in new_pw):
-            flash('새 비밀번호는 8자 이상, 영문+숫자를 포함해야 합니다.', 'danger')
+        ok, err = validate_password(new_pw)
+        if not ok:
+            flash(err, 'danger')
             return render_template('admin/change_password.html')
 
         current_user.set_password(new_pw)
@@ -144,12 +223,8 @@ def change_password():
 # ── 사용자 관리 (학생·교사 삭제 / 비밀번호 초기화) ─────────────
 
 def _temp_password():
-    """영문+숫자 혼합 8자 임시 비밀번호 생성"""
-    chars = string.ascii_letters + string.digits
-    while True:
-        pw = ''.join(secrets.choice(chars) for _ in range(8))
-        if any(c.isalpha() for c in pw) and any(c.isdigit() for c in pw):
-            return pw
+    """영문+숫자 혼합 임시 비밀번호 생성 (길이는 SystemSetting에서 조회)"""
+    return generate_temp_password()
 
 
 @admin_bp.route('/users')
@@ -203,8 +278,13 @@ def delete_user(user_id):
     Schedule.query.filter_by(user_id=user_id).delete()
 
     name = user.name
+    target_username = user.username
+    target_role = user.role
     db.session.delete(user)
     db.session.commit()
+    log_audit('admin.account_delete', level='warning',
+              admin=current_user.username, target=target_username,
+              target_role=target_role)
     flash(f'"{name}" 계정과 모든 관련 데이터가 삭제되었습니다.', 'warning')
     return redirect(url_for('admin_bp.users'))
 
@@ -247,6 +327,10 @@ def new_year():
         # 학생 계정 삭제
         User.query.filter_by(role='student').delete()
         db.session.commit()
+        log_audit('admin.new_year_reset', level='warning',
+                  admin=current_user.username,
+                  students=stats['students'], attendances=stats['attendances'],
+                  applications=stats['applications'], study_logs=stats['study_logs'])
 
         flash(
             f'새 학년도 초기화 완료 — '
@@ -281,9 +365,10 @@ def new_year_backup():
         ws.freeze_panes = 'A2'
 
     # ── Sheet 1: 학생 명단 ──
+    # 보안: 비밀번호 해시는 백업에 포함하지 않음. 복원 시 임시 비번이 새로 발급된다.
     ws1 = wb.active
     ws1.title = '학생명단'
-    make_header(ws1, ['학번', '이름', '학년', '반', '성별', '아이디', '비밀번호해시'])
+    make_header(ws1, ['학번', '이름', '학년', '반', '성별', '아이디'])
     for s in User.query.filter_by(role='student').order_by(
             User.grade, User.class_num, User.student_id).all():
         ws1.append([
@@ -293,7 +378,6 @@ def new_year_backup():
             s.class_num,
             '남' if s.gender == 'M' else '여',
             s.username,
-            s.password_hash,
         ])
 
     # ── Sheet 2: 출결 요약 (학생 × 월별) ──
@@ -384,23 +468,24 @@ def new_year_backup():
             att.study_minutes if att.study_minutes is not None else '',
         ])
 
-    # ── Sheet 6: 교사 명단 (아이디·이름·승인여부·담당학년·비밀번호해시) ──
+    # ── Sheet 6: 교사 명단 (아이디·이름·승인여부·담당학년) ──
+    # 보안: 비밀번호 해시는 백업에 포함하지 않음.
     ws6 = wb.create_sheet('교사명단')
-    make_header(ws6, ['아이디', '이름', '승인여부', '담당학년', '비밀번호해시'])
+    make_header(ws6, ['아이디', '이름', '승인여부', '담당학년'])
     for t in User.query.filter_by(role='teacher').order_by(User.name).all():
         ws6.append([
             t.username,
             t.name,
             '승인' if t.is_approved else '미승인',
             t.assigned_grade if t.assigned_grade is not None else '',
-            t.password_hash,
         ])
 
-    # ── Sheet 7: 관리자 계정 (아이디·비밀번호해시) ──
+    # ── Sheet 7: 관리자 계정 (아이디·이름) ──
+    # 보안: 비밀번호 해시는 백업에 포함하지 않음.
     ws7 = wb.create_sheet('관리자')
-    make_header(ws7, ['아이디', '이름', '비밀번호해시'])
+    make_header(ws7, ['아이디', '이름'])
     for a in User.query.filter_by(role='admin').order_by(User.id).all():
-        ws7.append([a.username, a.name, a.password_hash])
+        ws7.append([a.username, a.name])
 
     # ── Sheet 8: 자습 시간 설정 ──
     ws8 = wb.create_sheet('자습시간설정')
@@ -422,8 +507,9 @@ def new_year_backup():
         ws9.append([h.date.isoformat(), h.name])
 
     # ── Sheet 10: 자습실 목록 ──
+    # 보안: QR 토큰은 백업에 포함하지 않음. 복원 시 새 토큰이 자동 생성되며, QR 재인쇄가 필요하다.
     ws10 = wb.create_sheet('자습실목록')
-    make_header(ws10, ['자습실명', '전체정원', '남학생정원', '여학생정원', '활성화', '순서', 'QR토큰'])
+    make_header(ws10, ['자습실명', '전체정원', '남학생정원', '여학생정원', '활성화', '순서'])
     all_rooms = StudyRoom.query.order_by(StudyRoom.order).all()
     for r in all_rooms:
         ws10.append([
@@ -433,7 +519,6 @@ def new_year_backup():
             r.female_capacity,
             'Y' if r.is_active else 'N',
             r.order,
-            r.qr_token,
         ])
 
     # ── Sheet 11: 자습실 배정 및 좌석 위치 ──
@@ -488,9 +573,473 @@ def new_year_backup():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+# ── Excel 복원 헬퍼들 ─────────────────────────────────────────
+# restore()가 너무 비대해져서 시트별로 분리. 각 헬퍼는 (wb, result, ...)을 받아
+# result 딕셔너리와 신규 계정 임시 비번 목록(temp_credentials)을 직접 갱신한다.
+# 치명적 DB flush 오류 시 _RestoreAborted를 raise → 디스패처가 redirect로 변환.
+
+class _RestoreAborted(Exception):
+    """복원 중 치명적 DB 오류 신호. 디스패처가 catch해서 redirect 반환."""
+
+
+_STATUS_KO_TO_EN = {
+    '출석':         'present',
+    '지각':         'late',
+    '결석':         'absent',
+    '조퇴':         'early_leave',
+    '출석인정':     'approved_leave',
+    '방과후출결인정': 'after_school',
+}
+
+
+def _new_restore_result():
+    return {'students': 0, 'teachers': 0, 'admins': 0, 'study_rooms': 0,
+            'holidays': 0, 'period_settings': 0, 'skipped': 0,
+            'attendance': 0, 'applications': 0, 'study_logs': 0,
+            'room_assignments': 0, 'schedules': 0, 'errors': []}
+
+
+def _try_flush_or_abort(stage_name):
+    try:
+        db.session.flush()
+    except Exception as e:
+        db.session.rollback()
+        flash(f'{stage_name} 복원 중 DB 오류: {e}', 'danger')
+        raise _RestoreAborted()
+
+
+def _restore_students_sheet(wb, result, temp_credentials):
+    if '학생명단' not in wb.sheetnames:
+        return
+    ws = wb['학생명단']
+    # 컬럼: 학번, 이름, 학년, 반, 성별, 아이디
+    # (옛 백업의 7번째 비밀번호해시 컬럼은 보안상 무시 - 항상 임시 비번 새로 발급)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        sid        = str(row[0]).strip()
+        name       = str(row[1]).strip()
+        grade      = row[2]
+        cls        = row[3]
+        gender_str = row[4]
+        username   = str(row[5]).strip() if row[5] else None
+        if not sid or not name:
+            continue
+        ok, err = validate_student_id(sid)
+        if not ok:
+            result['errors'].append(f'학번 형식 오류 (건너뜀): {sid!r} — {err}')
+            result['skipped'] += 1
+            continue
+        if User.query.filter_by(student_id=sid).first():
+            result['skipped'] += 1
+            continue
+        if username and User.query.filter_by(username=username).first():
+            username = sid
+        username = username or sid
+        gender = 'M' if str(gender_str).strip() in ('남', 'M') else 'F'
+        u = User(
+            username=username, name=name, role='student',
+            grade=int(grade) if grade else None,
+            class_num=int(cls) if cls else None,
+            gender=gender, student_id=sid, is_approved=True,
+        )
+        temp_pw = generate_temp_password()
+        u.set_password(temp_pw)
+        db.session.add(u)
+        temp_credentials.append(('학생', username, name, sid, temp_pw))
+        result['students'] += 1
+    _try_flush_or_abort('학생 계정')
+
+
+def _restore_study_rooms_sheet(wb, result):
+    if '자습실목록' not in wb.sheetnames:
+        return
+    ws = wb['자습실목록']
+    # 컬럼: 자습실명, 전체정원, 남학생정원, 여학생정원, 활성화, 순서
+    # (옛 백업의 7번째 QR토큰 컬럼은 보안상 무시 - 항상 새 토큰 생성, QR 재인쇄 필요)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            name        = str(row[0]).strip()
+            capacity    = int(row[1]) if row[1] not in (None, '') else 0
+            male_cap    = int(row[2]) if row[2] not in (None, '') else 0
+            female_cap  = int(row[3]) if row[3] not in (None, '') else 0
+            is_active   = str(row[4]).strip().upper() != 'N' if len(row) > 4 and row[4] else True
+            order       = int(row[5]) if len(row) > 5 and row[5] not in (None, '') else 0
+            if not name:
+                continue
+            if StudyRoom.query.filter_by(name=name).first():
+                result['skipped'] += 1
+                continue
+            capacity   = max(0, capacity)
+            male_cap   = max(0, male_cap)
+            female_cap = max(0, female_cap)
+            if capacity > 0 and (male_cap + female_cap) > capacity:
+                result['errors'].append(
+                    f'자습실 "{name}": 남/여 정원 합계({male_cap}+{female_cap})'
+                    f'가 전체 정원({capacity})을 초과하여 정원값을 0으로 초기화합니다.'
+                )
+                male_cap = 0
+                female_cap = 0
+            db.session.add(StudyRoom(
+                name=name, capacity=capacity,
+                male_capacity=male_cap, female_capacity=female_cap,
+                is_active=is_active, order=order,
+                qr_token=secrets.token_hex(16),
+            ))
+            result['study_rooms'] += 1
+        except Exception as e:
+            result['errors'].append(f'자습실 행 오류: {e}')
+    _try_flush_or_abort('자습실')
+
+
+def _restore_attendance_sheet(wb, result, sid_to_user):
+    if '출결상세' not in wb.sheetnames:
+        return
+    ws = wb['출결상세']
+    # 컬럼: 학번, 이름, 날짜, 교시, 상태, 출석시각, 퇴실시각(선택), 조퇴사유(선택), 자습공간명, 자습시간(분)
+    def _parse_dt(val):
+        s = str(val).strip() if val else ''
+        return datetime.strptime(s[:19], '%Y-%m-%d %H:%M:%S') if s else None
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            sid      = str(row[0]).strip()
+            att_date = datetime.strptime(str(row[2]).strip()[:10], '%Y-%m-%d').date()
+            period   = int(row[3])
+            status   = _STATUS_KO_TO_EN.get(str(row[4]).strip(), 'present')
+            checked_at      = _parse_dt(row[5] if len(row) > 5 else None)
+            checked_out_at  = _parse_dt(row[6] if len(row) > 6 else None)
+            early_leave_note = str(row[7]).strip() if len(row) > 7 and row[7] else None
+            room_name        = str(row[8]).strip() if len(row) > 8 and row[8] else None
+            study_minutes    = int(row[9]) if len(row) > 9 and row[9] not in (None, '') else None
+
+            user = sid_to_user.get(sid)
+            if not user:
+                continue
+            if Attendance.query.filter_by(user_id=user.id, date=att_date, period=period).first():
+                continue
+            room_obj = StudyRoom.query.filter_by(name=room_name).first() if room_name else None
+            db.session.add(Attendance(
+                user_id=user.id, date=att_date, period=period,
+                status=status, checked_at=checked_at,
+                checked_out_at=checked_out_at,
+                study_minutes=study_minutes,
+                early_leave_note=early_leave_note,
+                study_room_id=room_obj.id if room_obj else None,
+            ))
+            result['attendance'] += 1
+        except Exception as e:
+            result['errors'].append(f'출결 행 오류: {e}')
+
+
+def _restore_applications_sheet(wb, result, sid_to_user):
+    if '자습신청' not in wb.sheetnames:
+        return
+    ws = wb['자습신청']
+    # 컬럼: 학번, 이름, 학년, 반, 날짜, 교시
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            sid      = str(row[0]).strip()
+            app_date = datetime.strptime(str(row[4]).strip()[:10], '%Y-%m-%d').date()
+            period   = int(row[5])
+            user = sid_to_user.get(sid)
+            if not user:
+                continue
+            if StudyApplication.query.filter_by(user_id=user.id, date=app_date, period=period).first():
+                continue
+            db.session.add(StudyApplication(user_id=user.id, date=app_date, period=period))
+            result['applications'] += 1
+        except Exception as e:
+            result['errors'].append(f'신청 행 오류: {e}')
+
+
+def _restore_study_logs_sheet(wb, result, sid_to_user):
+    if '학습기록' not in wb.sheetnames:
+        return
+    ws = wb['학습기록']
+    # 컬럼: 학번, 이름, 학년, 반, 날짜, 과목, 학습시간(분), 메모
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            sid      = str(row[0]).strip()
+            log_date = datetime.strptime(str(row[4]).strip()[:10], '%Y-%m-%d').date()
+            subject  = str(row[5]).strip()
+            duration = int(row[6])
+            memo     = str(row[7]).strip() if row[7] else ''
+            user = sid_to_user.get(sid)
+            if not user or not subject:
+                continue
+            db.session.add(StudyLog(
+                user_id=user.id, date=log_date,
+                subject=subject, duration=duration, memo=memo
+            ))
+            result['study_logs'] += 1
+        except Exception as e:
+            result['errors'].append(f'학습기록 행 오류: {e}')
+
+
+def _restore_teachers_sheet(wb, result, temp_credentials):
+    if '교사명단' not in wb.sheetnames:
+        return
+    ws = wb['교사명단']
+    # 컬럼: 아이디, 이름, 승인여부, 담당학년(선택)
+    # (옛 백업의 5번째 비밀번호해시 컬럼은 보안상 무시 - 항상 임시 비번 새로 발급)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            username        = str(row[0]).strip()
+            name            = str(row[1]).strip()
+            approved        = str(row[2]).strip() == '승인'
+            assigned_grade  = int(row[3]) if len(row) > 3 and row[3] not in (None, '') else None
+            if not username or not name:
+                continue
+            if User.query.filter_by(username=username).first():
+                result['skipped'] += 1
+                continue
+            t = User(
+                username=username, name=name, role='teacher',
+                is_approved=approved, assigned_grade=assigned_grade,
+            )
+            temp_pw = generate_temp_password()
+            t.set_password(temp_pw)
+            db.session.add(t)
+            temp_credentials.append(('교사', username, name, '', temp_pw))
+            result['teachers'] += 1
+        except Exception as e:
+            result['errors'].append(f'교사 행 오류: {e}')
+    _try_flush_or_abort('교사 계정')
+
+
+def _restore_admins_sheet(wb, result, temp_credentials):
+    if '관리자' not in wb.sheetnames:
+        return
+    ws = wb['관리자']
+    # 컬럼: 아이디, 이름
+    # (옛 백업의 3번째 비밀번호해시 컬럼은 보안상 무시 - 항상 임시 비번 새로 발급)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            username = str(row[0]).strip()
+            name     = str(row[1]).strip() if row[1] else username
+            if not username:
+                continue
+            if User.query.filter_by(username=username).first():
+                result['skipped'] += 1
+                continue
+            a = User(username=username, name=name, role='admin', is_approved=True)
+            temp_pw = generate_temp_password()
+            a.set_password(temp_pw)
+            db.session.add(a)
+            temp_credentials.append(('관리자', username, name, '', temp_pw))
+            result['admins'] += 1
+        except Exception as e:
+            result['errors'].append(f'관리자 행 오류: {e}')
+    _try_flush_or_abort('관리자 계정')
+
+
+def _restore_holidays_sheet(wb, result):
+    if '공휴일' not in wb.sheetnames:
+        return
+    ws = wb['공휴일']
+    # 컬럼: 날짜, 공휴일명
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            h_date = datetime.strptime(str(row[0]).strip()[:10], '%Y-%m-%d').date()
+            h_name = str(row[1]).strip() if row[1] else ''
+            if not h_name:
+                continue
+            if Holiday.query.filter_by(date=h_date).first():
+                result['skipped'] += 1
+                continue
+            db.session.add(Holiday(date=h_date, name=h_name))
+            result['holidays'] += 1
+        except Exception as e:
+            result['errors'].append(f'공휴일 행 오류: {e}')
+
+
+def _restore_period_settings_sheet(wb, result):
+    if '자습시간설정' not in wb.sheetnames:
+        return
+    ws = wb['자습시간설정']
+    # 컬럼: 요일구분, 교시, 시작시각, 종료시각, 활성화
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            day_type   = str(row[0]).strip()
+            period     = int(row[1])
+            start_time = str(row[2]).strip()
+            end_time   = str(row[3]).strip()
+            is_active  = str(row[4]).strip().upper() != 'N' if len(row) > 4 and row[4] else True
+            if not day_type or not start_time or not end_time:
+                continue
+            ok_s, err_s = validate_time_str(start_time, f'{day_type} {period}교시 시작 시각')
+            if not ok_s:
+                result['errors'].append(f'자습시간설정: {err_s}')
+                continue
+            ok_e, err_e = validate_time_str(end_time, f'{day_type} {period}교시 종료 시각')
+            if not ok_e:
+                result['errors'].append(f'자습시간설정: {err_e}')
+                continue
+            if parse_time_str(start_time) >= parse_time_str(end_time):
+                result['errors'].append(f'자습시간설정 {day_type} {period}교시 시작≥종료')
+                continue
+            existing = StudyPeriodSetting.query.filter_by(
+                day_type=day_type, period=period).first()
+            if existing:
+                existing.start_time = start_time
+                existing.end_time   = end_time
+                existing.is_active  = is_active
+            else:
+                db.session.add(StudyPeriodSetting(
+                    day_type=day_type, period=period,
+                    start_time=start_time, end_time=end_time,
+                    is_active=is_active,
+                ))
+            result['period_settings'] += 1
+        except Exception as e:
+            result['errors'].append(f'자습시간설정 행 오류: {e}')
+
+
+def _restore_room_assignments_sheet(wb, result):
+    if '자습실배정' not in wb.sheetnames:
+        return
+    # 최신 sid→user 맵 (방금 복원된 학생 포함)
+    sid_to_user = {u.student_id: u for u in User.query.filter_by(role='student').all()}
+    room_name_map = {r.name: r for r in StudyRoom.query.all()}
+    ws = wb['자습실배정']
+    # 컬럼: 학번, 이름, 자습실명, 좌석번호, 위치X(%), 위치Y(%)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            sid       = str(row[0]).strip()
+            room_name = str(row[2]).strip() if len(row) > 2 and row[2] else None
+            seat_num  = int(row[3]) if len(row) > 3 and row[3] not in (None, '') else None
+            pos_x     = float(row[4]) if len(row) > 4 and row[4] not in (None, '') else None
+            pos_y     = float(row[5]) if len(row) > 5 and row[5] not in (None, '') else None
+
+            user = sid_to_user.get(sid)
+            room = room_name_map.get(room_name) if room_name else None
+            if not user or not room:
+                continue
+            if StudentRoom.query.filter_by(user_id=user.id).first():
+                result['skipped'] += 1
+                continue
+            db.session.add(StudentRoom(
+                user_id=user.id, study_room_id=room.id,
+                seat_number=seat_num, pos_x=pos_x, pos_y=pos_y,
+            ))
+            result['room_assignments'] += 1
+        except Exception as e:
+            result['errors'].append(f'자습실배정 행 오류: {e}')
+
+
+def _restore_schedules_sheet(wb, result):
+    if '방과후수업' not in wb.sheetnames:
+        return
+    sid_to_user = {u.student_id: u for u in User.query.filter_by(role='student').all()}
+    # 활성 교시 화이트리스트 (없으면 검증 생략)
+    valid_periods = {s.period for s in StudyPeriodSetting.query.filter_by(is_active=True).all()
+                     if s.day_type in ('weekday', 'mon', 'tue', 'wed', 'thu', 'fri')}
+    ws = wb['방과후수업']
+    # 컬럼: 학번, 이름, 학년, 반, 요일(한글), 요일번호(0=월), 교시
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None:
+            continue
+        try:
+            sid     = str(row[0]).strip()
+            day_i   = int(row[5]) if len(row) > 5 and row[5] not in (None, '') else None
+            period  = int(row[6]) if len(row) > 6 and row[6] not in (None, '') else None
+            if day_i is None or period is None:
+                continue
+            if not (0 <= day_i <= 4):
+                result['errors'].append(f'방과후 요일 오류 (건너뜀): 학번={sid}, 요일={day_i}')
+                continue
+            if valid_periods and period not in valid_periods:
+                result['errors'].append(f'방과후 교시 오류 (건너뜀): 학번={sid}, {period}교시는 활성 교시 아님')
+                continue
+            user = sid_to_user.get(sid)
+            if not user:
+                continue
+            if Schedule.query.filter_by(user_id=user.id, day_of_week=day_i, period=period).first():
+                result['skipped'] += 1
+                continue
+            db.session.add(Schedule(
+                user_id=user.id, day_of_week=day_i, period=period,
+                subject='방과후수업',
+            ))
+            result['schedules'] += 1
+        except Exception as e:
+            result['errors'].append(f'방과후수업 행 오류: {e}')
+    _try_flush_or_abort('방과후수업')
+
+
+def _build_restore_summary_msg(result):
+    return (f'복원 완료 — 학생 {result["students"]}명 / '
+            f'교사 {result["teachers"]}명 / '
+            f'관리자 {result["admins"]}명 / '
+            f'자습실 {result["study_rooms"]}개 / '
+            f'공휴일 {result["holidays"]}건 / '
+            f'자습시간설정 {result["period_settings"]}건 생성 '
+            f'(중복 건너뜀 {result["skipped"]}건) / '
+            f'출결 {result["attendance"]}건 / '
+            f'자습신청 {result["applications"]}건 / '
+            f'학습기록 {result["study_logs"]}건 / '
+            f'자습실배정 {result["room_assignments"]}건 / '
+            f'방과후수업 {result["schedules"]}건')
+
+
+def _build_temp_credentials_xlsx(msg, result, temp_credentials):
+    """신규 계정의 임시 비번을 담은 Excel 워크북을 BytesIO로 반환."""
+    wb_out = openpyxl.Workbook()
+
+    ws_sum = wb_out.active
+    ws_sum.title = '복원요약'
+    ws_sum.append(['항목', '값'])
+    ws_sum.append(['복원 요약', msg])
+    ws_sum.append(['신규 계정 수', len(temp_credentials)])
+    ws_sum.append(['생성 시각', datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+    ws_sum.append(['주의', '이 파일은 모든 신규 계정의 초기 비밀번호를 평문으로 담고 있습니다. '
+                          '학생·교사에게 개별 전달한 후 즉시 삭제하십시오.'])
+
+    ws_cred = wb_out.create_sheet('임시비밀번호')
+    hdr_fill = PatternFill('solid', fgColor='1E3A5F')
+    hdr_font = Font(bold=True, color='FFFFFF')
+    ws_cred.append(['역할', '아이디', '이름', '학번', '임시비밀번호'])
+    for cell in ws_cred[1]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+    for role, username, uname, sid, pw in temp_credentials:
+        ws_cred.append([role, username, uname, sid, pw])
+    ws_cred.freeze_panes = 'A2'
+
+    if result['errors']:
+        ws_err = wb_out.create_sheet('복원오류')
+        ws_err.append(['행', '메시지'])
+        for i, err in enumerate(result['errors'], start=1):
+            ws_err.append([i, err])
+        ws_err.freeze_panes = 'A2'
+
+    buf = BytesIO()
+    wb_out.save(buf)
+    buf.seek(0)
+    return buf
+
+
 @admin_bp.route('/restore', methods=['GET', 'POST'])
 def restore():
-    """백업 Excel 파일로 DB 복원"""
+    """백업 Excel 파일로 DB 복원 - 디스패처 전용. 시트별 처리는 _restore_*_sheet() 헬퍼들."""
     if request.method == 'GET':
         return render_template('admin/restore.html')
 
@@ -500,17 +1049,11 @@ def restore():
         return render_template('admin/restore.html')
 
     options = request.form.getlist('options')
-    restore_students    = 'students'         in options
-    restore_teachers    = 'teachers'         in options
-    restore_admins      = 'admins'           in options
-    restore_study_rooms = 'study_rooms'      in options
-    restore_holidays    = 'holidays'         in options
-    restore_periods     = 'period_settings'  in options
-    restore_attendance  = 'attendance'       in options
-    restore_apps        = 'applications'     in options
-    restore_logs        = 'study_logs'       in options
-    restore_rooms       = 'room_assignments' in options
-    restore_schedules   = 'schedules'        in options
+    flags = {name: (name in options) for name in (
+        'students', 'teachers', 'admins', 'study_rooms',
+        'holidays', 'period_settings', 'attendance',
+        'applications', 'study_logs', 'room_assignments', 'schedules',
+    )}
 
     try:
         wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
@@ -518,442 +1061,43 @@ def restore():
         flash(f'파일을 읽을 수 없습니다: {e}', 'danger')
         return render_template('admin/restore.html')
 
-    STATUS_MAP = {
-        '출석':         'present',
-        '지각':         'late',
-        '결석':         'absent',
-        '조퇴':         'early_leave',
-        '출석인정':     'approved_leave',
-        '방과후출결인정': 'after_school',
-    }
-    result = {'students': 0, 'teachers': 0, 'admins': 0, 'study_rooms': 0,
-              'holidays': 0, 'period_settings': 0, 'skipped': 0,
-              'attendance': 0, 'applications': 0, 'study_logs': 0,
-              'room_assignments': 0, 'errors': []}
+    result = _new_restore_result()
+    # 신규 발급된 임시 비밀번호 목록 (역할, 아이디, 이름, 학번, 임시비번)
+    # 복원 종료 후 Excel로 다운로드된다 - 화면이나 로그에 평문 비번을 남기지 않는다.
+    temp_credentials = []
 
-    # ── 1. 학생 계정 복원 (Sheet: 학생명단) ──
-    # 컬럼: 학번, 이름, 학년, 반, 성별, 아이디, 비밀번호해시(선택)
-    if restore_students and '학생명단' in wb.sheetnames:
-        ws = wb['학생명단']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            sid        = str(row[0]).strip()
-            name       = str(row[1]).strip()
-            grade      = row[2]
-            cls        = row[3]
-            gender_str = row[4]
-            username   = str(row[5]).strip() if row[5] else None
-            pw_hash    = str(row[6]).strip() if len(row) > 6 and row[6] else None
-            if not sid or not name:
-                continue
-            # 학번 형식 검사: 숫자 5자리
-            if not (len(sid) == 5 and sid.isdigit()):
-                result['errors'].append(f'학번 형식 오류 (건너뜀): {sid!r} — 숫자 5자리여야 합니다')
-                result['skipped'] += 1
-                continue
-            if User.query.filter_by(student_id=sid).first():
-                result['skipped'] += 1
-                continue
-            if username and User.query.filter_by(username=username).first():
-                username = sid
-            username = username or sid
-            gender = 'M' if str(gender_str).strip() in ('남', 'M') else 'F'
-            u = User(
-                username=username,
-                name=name,
-                role='student',
-                grade=int(grade) if grade else None,
-                class_num=int(cls) if cls else None,
-                gender=gender,
-                student_id=sid,
-                is_approved=True,
-            )
-            if pw_hash:
-                u.password_hash = pw_hash          # 기존 비밀번호 그대로 복원
-            else:
-                u.set_password(sid + 'Study1')     # 구 형식 백업 파일 호환
-            db.session.add(u)
-            result['students'] += 1
-        try:
-            db.session.flush()   # ID 확정 후 아래에서 참조
-        except Exception as e:
-            db.session.rollback()
-            flash(f'학생 계정 복원 중 DB 오류: {e}', 'danger')
-            return redirect(url_for('admin_bp.restore'))
-
-    # 학번 → User 매핑 (복원된 + 기존 모두 포함)
-    sid_to_user = {u.student_id: u for u in User.query.filter_by(role='student').all()}
-
-    # ── 2. 자습실 목록 복원 (Sheet: 자습실목록) ── (출결 복원 전에 먼저 처리해야 study_room_id 연결 가능)
-    # 컬럼: 자습실명, 전체정원, 남학생정원, 여학생정원, 활성화, 순서, QR토큰
-    if restore_study_rooms and '자습실목록' in wb.sheetnames:
-        ws = wb['자습실목록']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                name        = str(row[0]).strip()
-                capacity    = int(row[1]) if row[1] not in (None, '') else 0
-                male_cap    = int(row[2]) if row[2] not in (None, '') else 0
-                female_cap  = int(row[3]) if row[3] not in (None, '') else 0
-                is_active   = str(row[4]).strip().upper() != 'N' if len(row) > 4 and row[4] else True
-                order       = int(row[5]) if len(row) > 5 and row[5] not in (None, '') else 0
-                qr_token    = str(row[6]).strip() if len(row) > 6 and row[6] else None
-                if not name:
-                    continue
-                # 이름 중복이면 건너뜀
-                if StudyRoom.query.filter_by(name=name).first():
-                    result['skipped'] += 1
-                    continue
-                # 정원 유효성 검사
-                capacity   = max(0, capacity)
-                male_cap   = max(0, male_cap)
-                female_cap = max(0, female_cap)
-                if capacity > 0 and (male_cap + female_cap) > capacity:
-                    result['errors'].append(
-                        f'자습실 "{name}": 남/여 정원 합계({male_cap}+{female_cap})'
-                        f'가 전체 정원({capacity})을 초과하여 정원값을 0으로 초기화합니다.'
-                    )
-                    male_cap = 0
-                    female_cap = 0
-                # QR 토큰 중복 방지
-                if qr_token and StudyRoom.query.filter_by(qr_token=qr_token).first():
-                    qr_token = None
-                if not qr_token:
-                    qr_token = secrets.token_hex(16)
-                db.session.add(StudyRoom(
-                    name=name,
-                    capacity=capacity,
-                    male_capacity=male_cap,
-                    female_capacity=female_cap,
-                    is_active=is_active,
-                    order=order,
-                    qr_token=qr_token,
-                ))
-                result['study_rooms'] += 1
-            except Exception as e:
-                result['errors'].append(f'자습실 행 오류: {e}')
-        try:
-            db.session.flush()   # 자습실 ID 확정 후 출결 복원에서 참조
-        except Exception as e:
-            db.session.rollback()
-            flash(f'자습실 복원 중 DB 오류: {e}', 'danger')
-            return redirect(url_for('admin_bp.restore'))
-
-    # ── 3. 출결 상세 복원 (Sheet: 출결상세) ──
-    # 컬럼: 학번, 이름, 날짜, 교시, 상태, 출석시각, 퇴실시각(선택), 조퇴사유(선택)
-    if restore_attendance and '출결상세' in wb.sheetnames:
-        ws = wb['출결상세']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                sid      = str(row[0]).strip()
-                att_date = datetime.strptime(str(row[2]).strip()[:10], '%Y-%m-%d').date()
-                period   = int(row[3])
-                status   = STATUS_MAP.get(str(row[4]).strip(), 'present')
-
-                def _parse_dt(val):
-                    s = str(val).strip() if val else ''
-                    return datetime.strptime(s[:19], '%Y-%m-%d %H:%M:%S') if s else None
-
-                checked_at      = _parse_dt(row[5] if len(row) > 5 else None)
-                checked_out_at  = _parse_dt(row[6] if len(row) > 6 else None)
-                early_leave_note = str(row[7]).strip() if len(row) > 7 and row[7] else None
-                room_name        = str(row[8]).strip() if len(row) > 8 and row[8] else None
-                study_minutes    = int(row[9]) if len(row) > 9 and row[9] not in (None, '') else None
-
-                user = sid_to_user.get(sid)
-                if not user:
-                    continue
-                if Attendance.query.filter_by(user_id=user.id, date=att_date, period=period).first():
-                    continue
-                # 자습공간명으로 room_id 조회
-                room_obj = StudyRoom.query.filter_by(name=room_name).first() if room_name else None
-                db.session.add(Attendance(
-                    user_id=user.id, date=att_date, period=period,
-                    status=status, checked_at=checked_at,
-                    checked_out_at=checked_out_at,
-                    study_minutes=study_minutes,
-                    early_leave_note=early_leave_note,
-                    study_room_id=room_obj.id if room_obj else None,
-                ))
-                result['attendance'] += 1
-            except Exception as e:
-                result['errors'].append(f'출결 행 오류: {e}')
-
-    # ── 4. 자습 신청 복원 (Sheet: 자습신청) ──
-    # 컬럼: 학번, 이름, 학년, 반, 날짜, 교시
-    if restore_apps and '자습신청' in wb.sheetnames:
-        ws = wb['자습신청']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                sid      = str(row[0]).strip()
-                app_date = datetime.strptime(str(row[4]).strip()[:10], '%Y-%m-%d').date()
-                period   = int(row[5])
-                user = sid_to_user.get(sid)
-                if not user:
-                    continue
-                if StudyApplication.query.filter_by(user_id=user.id, date=app_date, period=period).first():
-                    continue
-                db.session.add(StudyApplication(user_id=user.id, date=app_date, period=period))
-                result['applications'] += 1
-            except Exception as e:
-                result['errors'].append(f'신청 행 오류: {e}')
-
-    # ── 5. 학습 기록 복원 (Sheet: 학습기록) ──
-    # 컬럼: 학번, 이름, 학년, 반, 날짜, 과목, 학습시간(분), 메모
-    if restore_logs and '학습기록' in wb.sheetnames:
-        ws = wb['학습기록']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                sid      = str(row[0]).strip()
-                log_date = datetime.strptime(str(row[4]).strip()[:10], '%Y-%m-%d').date()
-                subject  = str(row[5]).strip()
-                duration = int(row[6])
-                memo     = str(row[7]).strip() if row[7] else ''
-                user = sid_to_user.get(sid)
-                if not user or not subject:
-                    continue
-                db.session.add(StudyLog(
-                    user_id=user.id, date=log_date,
-                    subject=subject, duration=duration, memo=memo
-                ))
-                result['study_logs'] += 1
-            except Exception as e:
-                result['errors'].append(f'학습기록 행 오류: {e}')
-
-    # ── 6. 교사 계정 복원 (Sheet: 교사명단) ──
-    # 컬럼: 아이디, 이름, 승인여부, 담당학년(선택), 비밀번호해시
-    if restore_teachers and '교사명단' in wb.sheetnames:
-        ws = wb['교사명단']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                username        = str(row[0]).strip()
-                name            = str(row[1]).strip()
-                approved        = str(row[2]).strip() == '승인'
-                # 구형 백업(4컬럼)과 신형 백업(5컬럼) 모두 지원
-                if len(row) >= 5:
-                    assigned_grade = int(row[3]) if row[3] not in (None, '') else None
-                    pw_hash        = str(row[4]).strip() if row[4] else None
-                else:
-                    assigned_grade = None
-                    pw_hash        = str(row[3]).strip() if len(row) > 3 and row[3] else None
-                if not username or not name:
-                    continue
-                if User.query.filter_by(username=username).first():
-                    result['skipped'] += 1
-                    continue
-                t = User(
-                    username=username,
-                    name=name,
-                    role='teacher',
-                    is_approved=approved,
-                    assigned_grade=assigned_grade,
-                )
-                if pw_hash:
-                    t.password_hash = pw_hash
-                else:
-                    t.set_password(username + 'Teacher1')
-                db.session.add(t)
-                result['teachers'] += 1
-            except Exception as e:
-                result['errors'].append(f'교사 행 오류: {e}')
-        try:
-            db.session.flush()
-        except Exception as e:
-            db.session.rollback()
-            flash(f'교사 계정 복원 중 DB 오류: {e}', 'danger')
-            return redirect(url_for('admin_bp.restore'))
-
-    # ── 7. 관리자 계정 복원 (Sheet: 관리자) ──
-    # 컬럼: 아이디, 이름, 비밀번호해시
-    if restore_admins and '관리자' in wb.sheetnames:
-        ws = wb['관리자']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                username = str(row[0]).strip()
-                name     = str(row[1]).strip() if row[1] else username
-                pw_hash  = str(row[2]).strip() if len(row) > 2 and row[2] else None
-                if not username:
-                    continue
-                if User.query.filter_by(username=username).first():
-                    result['skipped'] += 1
-                    continue
-                a = User(username=username, name=name, role='admin', is_approved=True)
-                if pw_hash:
-                    a.password_hash = pw_hash
-                else:
-                    result['errors'].append(f'관리자 {username}: 비밀번호 해시 없음, 건너뜀')
-                    continue
-                db.session.add(a)
-                result['admins'] += 1
-            except Exception as e:
-                result['errors'].append(f'관리자 행 오류: {e}')
-        try:
-            db.session.flush()
-        except Exception as e:
-            db.session.rollback()
-            flash(f'관리자 계정 복원 중 DB 오류: {e}', 'danger')
-            return redirect(url_for('admin_bp.restore'))
-
-    # ── 8. 공휴일 복원 (Sheet: 공휴일) ──
-    # 컬럼: 날짜, 공휴일명
-    if restore_holidays and '공휴일' in wb.sheetnames:
-        ws = wb['공휴일']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                h_date = datetime.strptime(str(row[0]).strip()[:10], '%Y-%m-%d').date()
-                h_name = str(row[1]).strip() if row[1] else ''
-                if not h_name:
-                    continue
-                if Holiday.query.filter_by(date=h_date).first():
-                    result['skipped'] += 1
-                    continue
-                db.session.add(Holiday(date=h_date, name=h_name))
-                result['holidays'] += 1
-            except Exception as e:
-                result['errors'].append(f'공휴일 행 오류: {e}')
-
-    # ── 9. 자습 시간 설정 복원 (Sheet: 자습시간설정) ──
-    # 컬럼: 요일구분, 교시, 시작시각, 종료시각, 활성화
-    if restore_periods and '자습시간설정' in wb.sheetnames:
-        ws = wb['자습시간설정']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                day_type   = str(row[0]).strip()
-                period     = int(row[1])
-                start_time = str(row[2]).strip()
-                end_time   = str(row[3]).strip()
-                is_active  = str(row[4]).strip().upper() != 'N' if len(row) > 4 and row[4] else True
-                if not day_type or not start_time or not end_time:
-                    continue
-                _time_re = re.compile(r'^\d{2}:\d{2}$')
-                if not _time_re.match(start_time) or not _time_re.match(end_time):
-                    result['errors'].append(f'자습시간설정 {day_type} {period}교시 시간 형식 오류: {start_time}~{end_time}')
-                    continue
-                try:
-                    s_dt = datetime.strptime(start_time, '%H:%M')
-                    e_dt = datetime.strptime(end_time,   '%H:%M')
-                except ValueError:
-                    result['errors'].append(f'자습시간설정 {day_type} {period}교시 시간값 오류')
-                    continue
-                if s_dt >= e_dt:
-                    result['errors'].append(f'자습시간설정 {day_type} {period}교시 시작≥종료')
-                    continue
-                existing = StudyPeriodSetting.query.filter_by(
-                    day_type=day_type, period=period).first()
-                if existing:
-                    # 이미 있으면 값 업데이트 (설정은 덮어쓰는 것이 자연스러움)
-                    existing.start_time = start_time
-                    existing.end_time   = end_time
-                    existing.is_active  = is_active
-                else:
-                    db.session.add(StudyPeriodSetting(
-                        day_type=day_type, period=period,
-                        start_time=start_time, end_time=end_time,
-                        is_active=is_active,
-                    ))
-                result['period_settings'] += 1
-            except Exception as e:
-                result['errors'].append(f'자습시간설정 행 오류: {e}')
-
-    # ── 6. 자습실 배정 및 좌석 위치 복원 (Sheet: 자습실배정) ──
-    # 컬럼: 학번, 이름, 자습실명, 좌석번호, 위치X(%), 위치Y(%)
-    if restore_rooms and '자습실배정' in wb.sheetnames:
-        # 최신 sid→user 맵 (방금 복원된 학생 포함)
-        sid_to_user = {u.student_id: u
-                       for u in User.query.filter_by(role='student').all()}
-        room_name_map = {r.name: r for r in StudyRoom.query.all()}
-        ws = wb['자습실배정']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                sid       = str(row[0]).strip()
-                room_name = str(row[2]).strip() if len(row) > 2 and row[2] else None
-                seat_num  = int(row[3]) if len(row) > 3 and row[3] not in (None, '') else None
-                pos_x     = float(row[4]) if len(row) > 4 and row[4] not in (None, '') else None
-                pos_y     = float(row[5]) if len(row) > 5 and row[5] not in (None, '') else None
-
-                user = sid_to_user.get(sid)
-                room = room_name_map.get(room_name) if room_name else None
-                if not user or not room:
-                    continue
-                if StudentRoom.query.filter_by(user_id=user.id).first():
-                    result['skipped'] += 1
-                    continue
-                db.session.add(StudentRoom(
-                    user_id=user.id,
-                    study_room_id=room.id,
-                    seat_number=seat_num,
-                    pos_x=pos_x,
-                    pos_y=pos_y,
-                ))
-                result['room_assignments'] += 1
-            except Exception as e:
-                result['errors'].append(f'자습실배정 행 오류: {e}')
-
-    # ── 방과후 수업 스케줄 복원 (Sheet: 방과후수업) ──
-    # 컬럼: 학번, 이름, 학년, 반, 요일(한글), 요일번호(0=월), 교시
-    result['schedules'] = 0
-    if restore_schedules and '방과후수업' in wb.sheetnames:
+    try:
+        # 학생 먼저 - 출결/신청/학습기록 등이 sid_to_user를 참조하기 때문
+        if flags['students']:
+            _restore_students_sheet(wb, result, temp_credentials)
         sid_to_user = {u.student_id: u for u in User.query.filter_by(role='student').all()}
-        # 활성 교시 화이트리스트 (없으면 검증 생략)
-        from models import StudyPeriodSetting as _SPS
-        valid_periods = {s.period for s in _SPS.query.filter_by(is_active=True).all()
-                         if s.day_type in ('weekday', 'mon', 'tue', 'wed', 'thu', 'fri')}
-        ws = wb['방과후수업']
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or row[0] is None:
-                continue
-            try:
-                sid     = str(row[0]).strip()
-                day_i   = int(row[5]) if len(row) > 5 and row[5] not in (None, '') else None
-                period  = int(row[6]) if len(row) > 6 and row[6] not in (None, '') else None
-                if day_i is None or period is None:
-                    continue
-                if not (0 <= day_i <= 4):
-                    result['errors'].append(f'방과후 요일 오류 (건너뜀): 학번={sid}, 요일={day_i}')
-                    continue
-                if valid_periods and period not in valid_periods:
-                    result['errors'].append(f'방과후 교시 오류 (건너뜀): 학번={sid}, {period}교시는 활성 교시 아님')
-                    continue
-                user = sid_to_user.get(sid)
-                if not user:
-                    continue
-                # 중복이면 건너뜀
-                if Schedule.query.filter_by(user_id=user.id, day_of_week=day_i, period=period).first():
-                    result['skipped'] += 1
-                    continue
-                db.session.add(Schedule(
-                    user_id=user.id,
-                    day_of_week=day_i,
-                    period=period,
-                    subject='방과후수업',
-                ))
-                result['schedules'] += 1
-            except Exception as e:
-                result['errors'].append(f'방과후수업 행 오류: {e}')
-        try:
-            db.session.flush()
-        except Exception as e:
-            db.session.rollback()
-            flash(f'방과후수업 복원 중 DB 오류: {e}', 'danger')
-            return redirect(url_for('admin_bp.restore'))
+
+        # 자습실 먼저 - 출결 시트가 자습실명으로 study_room_id 조회
+        if flags['study_rooms']:
+            _restore_study_rooms_sheet(wb, result)
+
+        if flags['attendance']:
+            _restore_attendance_sheet(wb, result, sid_to_user)
+        if flags['applications']:
+            _restore_applications_sheet(wb, result, sid_to_user)
+        if flags['study_logs']:
+            _restore_study_logs_sheet(wb, result, sid_to_user)
+
+        if flags['teachers']:
+            _restore_teachers_sheet(wb, result, temp_credentials)
+        if flags['admins']:
+            _restore_admins_sheet(wb, result, temp_credentials)
+
+        if flags['holidays']:
+            _restore_holidays_sheet(wb, result)
+        if flags['period_settings']:
+            _restore_period_settings_sheet(wb, result)
+        if flags['room_assignments']:
+            _restore_room_assignments_sheet(wb, result)
+        if flags['schedules']:
+            _restore_schedules_sheet(wb, result)
+    except _RestoreAborted:
+        return redirect(url_for('admin_bp.restore'))
 
     try:
         db.session.commit()
@@ -962,34 +1106,29 @@ def restore():
         flash(f'엑셀 복원 중 DB 저장 오류가 발생했습니다: {e}', 'danger')
         return redirect(url_for('admin_bp.restore'))
 
-    # 결과 메시지
-    msg = (f'복원 완료 — 학생 {result["students"]}명 / '
-           f'교사 {result["teachers"]}명 / '
-           f'관리자 {result["admins"]}명 / '
-           f'자습실 {result["study_rooms"]}개 / '
-           f'공휴일 {result["holidays"]}건 / '
-           f'자습시간설정 {result["period_settings"]}건 생성 '
-           f'(중복 건너뜀 {result["skipped"]}건) / '
-           f'출결 {result["attendance"]}건 / '
-           f'자습신청 {result["applications"]}건 / '
-           f'학습기록 {result["study_logs"]}건 / '
-           f'자습실배정 {result["room_assignments"]}건 / '
-           f'방과후수업 {result["schedules"]}건')
-    flash(msg, 'success')
+    log_audit('admin.excel_restore', level='warning',
+              admin=current_user.username, source_filename=f.filename,
+              students=result['students'], teachers=result['teachers'],
+              admins=result['admins'])
 
-    if result['errors']:
-        for e in result['errors'][:5]:   # 오류는 최대 5개만 표시
-            flash(e, 'warning')
+    msg = _build_restore_summary_msg(result)
 
-    if restore_students and result['students'] > 0:
-        flash(
-            f'복원된 학생의 임시 비밀번호: 학번 + Study1  (예: 10101Study1). '
-            f'로그인 후 반드시 변경하도록 안내하세요.',
-            'info'
-        )
+    # 새로 생성된 계정이 없으면 redirect+flash
+    if not temp_credentials:
+        flash(msg, 'success')
+        if result['errors']:
+            for e in result['errors'][:5]:
+                flash(e, 'warning')
+        return redirect(url_for('admin_bp.dashboard'))
 
-    return redirect(url_for('admin_bp.dashboard'))
-
+    # 신규 계정이 있으면 임시 비번 Excel을 즉시 다운로드시킨다
+    # (화면·flash·로그에 평문 비번을 남기지 않는 유일한 경로)
+    buf = _build_temp_credentials_xlsx(msg, result, temp_credentials)
+    filename = f'self_study_복원결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    return send_file(
+        buf, as_attachment=True, download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 @admin_bp.route('/db-backup')
 def db_backup():
@@ -1029,18 +1168,19 @@ def db_restore():
         flash('.db 파일을 선택하세요.', 'danger')
         return redirect(url_for('admin_bp.restore'))
 
-    data = f.read()
-    # SQLite 파일 매직 바이트 검증
-    if len(data) < 16 or data[:16] != b'SQLite format 3\x00':
-        flash('유효한 SQLite DB 파일이 아닙니다.', 'danger')
-        return redirect(url_for('admin_bp.restore'))
-
-    # 임시 파일에 기록 후 스키마 검증
+    # 업로드 파일을 메모리에 전부 올리지 않고 디스크로 스트리밍 저장한다.
+    # (Flask는 MAX_CONTENT_LENGTH 초과 시 413으로 이미 차단)
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.db', dir=os.path.dirname(DB_PATH))
     try:
         os.close(tmp_fd)
-        with open(tmp_path, 'wb') as out:
-            out.write(data)
+        f.save(tmp_path)
+
+        # 매직 바이트 검증 (앞 16바이트만 읽는다)
+        with open(tmp_path, 'rb') as fh:
+            magic = fh.read(16)
+        if len(magic) < 16 or magic != b'SQLite format 3\x00':
+            flash('유효한 SQLite DB 파일이 아닙니다.', 'danger')
+            return redirect(url_for('admin_bp.restore'))
 
         # 필수 테이블·컬럼 검사 — models.py 실제 컬럼과 1:1 대응
         REQUIRED_COLUMNS = {
@@ -1144,6 +1284,9 @@ def db_restore():
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+    log_audit('admin.db_restore', level='warning',
+              admin=current_user.username,
+              source_filename=f.filename)
     flash(
         'DB가 성공적으로 복원되었습니다. '
         '이전 DB는 self_study.db.prev 파일로 보존되어 있습니다.',
@@ -1163,6 +1306,17 @@ def reset_password(user_id):
     temp_pw = _temp_password()
     user.set_password(temp_pw)
     db.session.commit()
-    flash(f'[{user.name} / {user.username}] 임시 비밀번호: {temp_pw}  '
-          f'(로그인 후 반드시 변경하도록 안내하세요)', 'success')
+    log_audit('admin.pw_reset', level='warning',
+              admin=current_user.username, target=user.username,
+              target_role=user.role)
+    # 평문 임시 비번은 이 한 번의 응답에서만 노출된다.
+    # 관리자가 이 화면을 떠나거나 새로고침하면 다시 확인할 수 없다.
+    # 평문 비번은 절대 로그에 남기지 않는다 — 이벤트만 기록.
+    flash(
+        f'[{user.name} / {user.username}] 임시 비밀번호: {temp_pw} '
+        f'— 이 화면을 벗어나면 다시 확인할 수 없습니다. '
+        f'지금 바로 본인에게 전달하고, 전달 후에는 스크린샷·메모를 남기지 마세요. '
+        f'재확인이 필요하면 비밀번호 초기화를 한 번 더 수행해야 합니다.',
+        'warning'
+    )
     return redirect(url_for('admin_bp.users'))

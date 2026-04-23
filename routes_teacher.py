@@ -4,12 +4,15 @@
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, send_file
 from flask_login import login_required, current_user
-from werkzeug.security import generate_password_hash
 from models import db, User, Attendance, StudyLog, Holiday, StudyPeriodSetting, StudyRoom, StudentRoom, StudyApplication, AttendanceLog, Schedule
+from constants import DEFAULT_PERIODS, WEEKDAY_CODES
+from day_utils import get_day_type
+import settings
+from validators import validate_password
+from time_utils import validate_time_str, parse_time_str
 from sqlalchemy import func
 from datetime import date, datetime, timedelta
 import calendar
-import re
 import secrets
 import random
 from io import BytesIO
@@ -33,40 +36,7 @@ DAY_TYPE_LABELS = {
     'weekday': '평일(공통)', 'saturday': '토요일', 'holiday': '공휴일',
 }
 
-WEEKDAY_CODES = ['mon', 'tue', 'wed', 'thu', 'fri']
 WEEKDAY_LABELS = ['월', '화', '수', '목', '금']
-
-# 기본 자습 시간 설정 (period -> (start_time, end_time))
-DEFAULT_PERIODS = {
-    'weekday': {
-        0: ('07:30', '08:30'),
-        1: ('18:00', '19:00'),
-        2: ('19:10', '20:10'),
-        3: ('20:20', '21:20'),
-        4: ('21:30', '22:30'),
-    },
-    'saturday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-        3: ('11:20', '12:20'),
-    },
-    'holiday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-    },
-}
-
-
-def get_day_type(check_date):
-    """날짜의 유형 반환: 'holiday', 'saturday', 'sunday', 또는 요일코드('mon'~'fri')"""
-    if Holiday.query.filter_by(date=check_date).first():
-        return 'holiday'
-    wd = check_date.weekday()
-    if wd == 5:
-        return 'saturday'
-    if wd == 6:
-        return 'sunday'
-    return WEEKDAY_CODES[wd]
 
 
 def get_period_settings(day_type):
@@ -797,8 +767,8 @@ def statistics():
     if not (2000 <= year <= 2100) or not (1 <= month <= 12):
         year, month = today.year, today.month
 
-    # 참여율 기준 (기본 80%)
-    min_rate = request.args.get('min_rate', 80, type=int)
+    # 참여율 기준 (기본값은 SystemSetting에서 조회)
+    min_rate = request.args.get('min_rate', settings.get_int('participation_rate_default', 80), type=int)
 
     # 정렬 기준: 'total'(총 학습시간) 또는 'period_N'(N교시 학습시간)
     sort_by = request.args.get('sort_by', 'total')
@@ -1004,18 +974,16 @@ def settings_periods():
         if start_time and end_time:
             rows.append((period, start_time, end_time, is_active))
 
-    _time_re = re.compile(r'^\d{2}:\d{2}$')
     for period, start_time, end_time, is_active in rows:
-        if not _time_re.match(start_time) or not _time_re.match(end_time):
-            flash(f'{period}교시 시간 형식이 올바르지 않습니다. (HH:MM)', 'danger')
+        ok_s, err_s = validate_time_str(start_time, f'{period}교시 시작 시각')
+        if not ok_s:
+            flash(err_s, 'danger')
             return redirect(url_for('teacher.settings'))
-        try:
-            s_dt = datetime.strptime(start_time, '%H:%M')
-            e_dt = datetime.strptime(end_time,   '%H:%M')
-        except ValueError:
-            flash(f'{period}교시 시간값이 올바르지 않습니다. (HH: 0~23, MM: 0~59)', 'danger')
+        ok_e, err_e = validate_time_str(end_time, f'{period}교시 종료 시각')
+        if not ok_e:
+            flash(err_e, 'danger')
             return redirect(url_for('teacher.settings'))
-        if s_dt >= e_dt:
+        if parse_time_str(start_time) >= parse_time_str(end_time):
             flash(f'{period}교시 시작 시각이 종료 시각보다 늦거나 같습니다.', 'danger')
             return redirect(url_for('teacher.settings'))
 
@@ -1024,9 +992,7 @@ def settings_periods():
     for period, start_time, end_time, is_active in rows:
         if not is_active:
             continue
-        s_dt = datetime.strptime(start_time, '%H:%M')
-        e_dt = datetime.strptime(end_time,   '%H:%M')
-        parsed_rows.append((period, s_dt, e_dt))
+        parsed_rows.append((period, parse_time_str(start_time), parse_time_str(end_time)))
     for i in range(len(parsed_rows)):
         for j in range(i + 1, len(parsed_rows)):
             p1, s1, e1 = parsed_rows[i]
@@ -1359,7 +1325,7 @@ def attendance_auto_process():
         if is_today:
             start_dt = datetime.combine(view_date, datetime.strptime(start_str, '%H:%M').time())
             end_dt   = datetime.combine(view_date, datetime.strptime(end_str,   '%H:%M').time())
-            late_threshold = start_dt + timedelta(minutes=10)
+            late_threshold = start_dt + timedelta(minutes=settings.get_int('late_threshold_minutes', 10))
             if now_dt < late_threshold:
                 continue
             status = 'absent' if now_dt >= end_dt else 'late'
@@ -1442,7 +1408,9 @@ def student_report(user_id):
         StudyLog.date >= first_day, StudyLog.date <= last_day
     ).order_by(StudyLog.date.desc()).all()
 
-    present_count = sum(1 for a in attendances if a.status in ('present', 'after_school'))
+    # 출석: present / approved_leave(출석인정) / after_school(방과후출결인정) — 다른 집계와 정합
+    # 지각(late)은 별도 카운트
+    present_count = sum(1 for a in attendances if a.status in ('present', 'approved_leave', 'after_school'))
     late_count    = sum(1 for a in attendances if a.status == 'late')
     absent_count  = sum(1 for a in attendances if a.status == 'absent')
     approved_count = sum(1 for a in attendances if a.status == 'approved_leave')
@@ -1834,7 +1802,7 @@ def export_statistics():
         attended = Attendance.query.filter(
             Attendance.user_id == s.id,
             Attendance.date.between(first_day, last_day),
-            Attendance.status.in_(['present', 'late', 'approved_leave'])
+            Attendance.status.in_(['present', 'late', 'approved_leave', 'after_school'])
         ).count()
         att_records = Attendance.query.filter(
             Attendance.user_id == s.id,
@@ -1954,30 +1922,45 @@ def room_attendance_status(room_id):
     assigned = StudentRoom.query.filter_by(study_room_id=room_id).all()
     user_ids  = [sr.user_id for sr in assigned if sr.user_id]
 
+    # 학생 N명에 대해 N+1 쿼리를 피하기 위해 한 번의 IN 쿼리로 모두 가져온다.
+    atts_by_uid = {uid: {} for uid in user_ids}
+    if user_ids:
+        for a in Attendance.query.filter(
+            Attendance.user_id.in_(user_ids),
+            Attendance.date == query_date,
+        ).all():
+            atts_by_uid[a.user_id][a.period] = a
+
+    apps_by_uid = {uid: set() for uid in user_ids}
+    if user_ids:
+        for sa in StudyApplication.query.filter(
+            StudyApplication.user_id.in_(user_ids),
+            StudyApplication.date == query_date,
+        ).all():
+            apps_by_uid[sa.user_id].add(sa.period)
+
+    # 가장 좋은 상태를 대표값으로 — after_school(방과후출결인정)은 approved_leave와 동급
+    PRIORITY = {'present': 0, 'late': 1, 'approved_leave': 2, 'after_school': 2,
+                'early_leave': 3, 'applied': 4, 'absent': 5, 'none': 6}
+
     result = {}
     for uid in user_ids:
-        # 해당 날짜 전체 출결 / 신청 데이터
-        atts = {a.period: a for a in
-                Attendance.query.filter_by(user_id=uid, date=query_date).all()}
-        apps = {a.period for a in
-                StudyApplication.query.filter_by(user_id=uid, date=query_date).all()}
+        atts = atts_by_uid.get(uid, {})
+        apps = apps_by_uid.get(uid, set())
 
         def _status(p):
             if p in atts:
-                return atts[p].status      # 'present' / 'late' / 'absent'
+                return atts[p].status      # 'present' / 'late' / 'absent' / ...
             if p in apps:
                 return 'applied'           # 신청했지만 아직 미처리
             return 'none'
 
-        # 교시별 상태
-        all_periods = sorted(set(list(atts.keys()) + list(apps)))
+        all_periods = sorted(set(atts.keys()) | apps)
         periods_data = {str(p): _status(p) for p in all_periods}
 
         if period_q is not None:
             overall = _status(period_q)
         else:
-            # 가장 좋은 상태를 대표값으로
-            PRIORITY = {'present': 0, 'late': 1, 'approved_leave': 2, 'early_leave': 3, 'applied': 4, 'absent': 5, 'none': 6}
             stati = [_status(p) for p in all_periods] if all_periods else ['none']
             overall = min(stati, key=lambda s: PRIORITY.get(s, 9))
 
@@ -2046,9 +2029,9 @@ def mypage():
             flash('새 비밀번호가 일치하지 않습니다.', 'danger')
             return render_template('teacher/mypage.html')
 
-        if len(new_pw) < 8 or not any(c.isdigit() for c in new_pw) \
-                or not any(c.isalpha() for c in new_pw):
-            flash('새 비밀번호는 8자 이상, 영문+숫자를 포함해야 합니다.', 'danger')
+        ok, err = validate_password(new_pw)
+        if not ok:
+            flash(err, 'danger')
             return render_template('teacher/mypage.html')
 
         current_user.set_password(new_pw)

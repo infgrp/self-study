@@ -4,8 +4,11 @@
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask_login import login_required, current_user
-from werkzeug.security import generate_password_hash
 from models import db, User, Schedule, Attendance, StudyLog, Holiday, StudyPeriodSetting, StudyApplication, StudentRoom, StudyRoom, AttendanceLog
+from constants import DEFAULT_PERIODS, WEEKDAY_CODES
+from day_utils import get_day_type, get_holiday_name
+import settings
+from validators import validate_password, validate_student_id
 from datetime import date, datetime, timedelta
 import calendar
 
@@ -19,41 +22,6 @@ DAY_TYPE_LABELS = {
     'weekday': '평일', 'saturday': '토요일',
     'holiday': '공휴일', 'sunday': '일요일',
 }
-
-# 기본 자습 시간 (DB 설정이 없을 때 사용)
-DEFAULT_PERIODS = {
-    'weekday': {
-        0: ('07:30', '08:30'),
-        1: ('18:00', '19:00'),
-        2: ('19:10', '20:10'),
-        3: ('20:20', '21:20'),
-        4: ('21:30', '22:30'),
-    },
-    'saturday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-        3: ('11:20', '12:20'),
-    },
-    'holiday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-    },
-    'sunday': {}
-}
-
-
-WEEKDAY_CODES = ['mon', 'tue', 'wed', 'thu', 'fri']
-
-def get_day_type(check_date):
-    """날짜의 유형 반환: 'holiday', 'saturday', 'sunday', 또는 요일코드('mon'~'fri')"""
-    if Holiday.query.filter_by(date=check_date).first():
-        return 'holiday'
-    wd = check_date.weekday()
-    if wd == 5:
-        return 'saturday'
-    if wd == 6:
-        return 'sunday'
-    return WEEKDAY_CODES[wd]
 
 
 def get_period_times(day_type):
@@ -75,12 +43,6 @@ def get_period_times(day_type):
             return {s.period: (s.start_time, s.end_time) for s in settings}
 
     return DEFAULT_PERIODS.get(fallback, {})
-
-
-def get_holiday_name(check_date):
-    """공휴일 이름 반환"""
-    holiday = Holiday.query.filter_by(date=check_date).first()
-    return holiday.name if holiday else None
 
 
 @student_bp.before_request
@@ -152,7 +114,8 @@ def apply():
     # 년/월 파라미터 (기본: 다음달)
     today = date.today()
     # 기본적으로 다음 달을 보여줌 (신청 마감 전이라면)
-    if today.day <= 20:  # 20일 이전이면 다음달 신청 가능
+    cutoff_day = settings.get_int('apply_cutoff_day', 20)
+    if today.day <= cutoff_day:
         default_year = today.year if today.month < 12 else today.year + 1
         default_month = today.month + 1 if today.month < 12 else 1
     else:
@@ -249,10 +212,11 @@ def apply():
     period_times_holiday = get_period_times('holiday')
 
     # 달력에 표시할 날짜 목록
+    # N+1 방지: 위에서 이미 fetch한 holidays dict를 get_day_type에 캐시로 전달한다.
     cal_days = []
     for day in range(1, last_day.day + 1):
         d = date(year, month, day)
-        day_type = get_day_type(d)
+        day_type = get_day_type(d, holidays_cache=holidays)
 
         if day_type in WEEKDAY_CODES:
             periods = period_times_by_code[day_type]
@@ -469,13 +433,13 @@ def qr_attend(token):
             current_period = period
             break
 
-    # 2순위: 아직 시작 안 한 교시 중 학생이 신청한 가장 빠른 교시 (사전 입실, 시작 30분 전부터 허용)
-    EARLY_CHECKIN_MINUTES = 30
+    # 2순위: 아직 시작 안 한 교시 중 학생이 신청한 가장 빠른 교시 (사전 입실 허용)
+    early_checkin_minutes = settings.get_int('early_checkin_minutes', 30)
     if current_period is None:
         upcoming = [
             (p, s) for p, (s, e) in sorted(period_times.items())
             if current_time < s and p in applied_periods
-            and (datetime.strptime(s, '%H:%M') - timedelta(minutes=EARLY_CHECKIN_MINUTES)).strftime('%H:%M') <= current_time
+            and (datetime.strptime(s, '%H:%M') - timedelta(minutes=early_checkin_minutes)).strftime('%H:%M') <= current_time
         ]
         if upcoming:
             current_period, _ = upcoming[0]
@@ -570,14 +534,14 @@ def qr_checkout(token):
         return redirect(url_for('student.dashboard'))
 
     # 퇴실 허용 여유 시간 (교시 종료 후 N분까지 퇴실 QR 허용)
-    CHECKOUT_GRACE_MINUTES = 10
+    checkout_grace_minutes = settings.get_int('checkout_grace_minutes', 10)
 
     # 현재 진행 중이거나 종료 후 여유 시간 내인 교시 찾기
     current_time = now.strftime('%H:%M')
     current_period = None
     period_end_time = None
     for period, (start, end) in sorted(period_times.items()):
-        grace_end = (datetime.strptime(end, '%H:%M') + timedelta(minutes=CHECKOUT_GRACE_MINUTES)).strftime('%H:%M')
+        grace_end = (datetime.strptime(end, '%H:%M') + timedelta(minutes=checkout_grace_minutes)).strftime('%H:%M')
         if start <= current_time <= grace_end:
             current_period = period
             period_end_time = end
@@ -672,9 +636,9 @@ def mypage():
             new_gender     = request.form.get('gender', '').strip()
 
             if new_student_id:
-                # 형식 검사: 숫자 5자리
-                if not (len(new_student_id) == 5 and new_student_id.isdigit()):
-                    flash('학번은 숫자 5자리여야 합니다.', 'danger')
+                ok, err = validate_student_id(new_student_id)
+                if not ok:
+                    flash(err, 'danger')
                     return render_template('student/mypage.html')
                 # 중복 확인 (본인 제외)
                 dup = User.query.filter(
@@ -706,9 +670,9 @@ def mypage():
             flash('새 비밀번호가 일치하지 않습니다.', 'danger')
             return render_template('student/mypage.html')
 
-        if len(new_pw) < 8 or not any(c.isdigit() for c in new_pw) \
-                or not any(c.isalpha() for c in new_pw):
-            flash('새 비밀번호는 8자 이상, 영문+숫자를 포함해야 합니다.', 'danger')
+        ok, err = validate_password(new_pw)
+        if not ok:
+            flash(err, 'danger')
             return render_template('student/mypage.html')
 
         current_user.set_password(new_pw)

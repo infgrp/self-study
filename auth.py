@@ -3,9 +3,11 @@
 """
 
 from flask import Blueprint, render_template, redirect, url_for, request, flash, session
-from flask_login import login_user, logout_user, login_required
+from flask_login import login_user, logout_user, login_required, current_user
 from urllib.parse import urlparse
 from models import db, User
+from validators import validate_password, validate_student_id
+from audit import log_audit
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -35,6 +37,8 @@ def login():
         if user and user.check_password(password):
             # 교사 계정 승인 여부 확인 (미승인 교사는 로그인 불가)
             if user.role == 'teacher' and not user.is_approved:
+                log_audit('auth.login_denied', username=username,
+                          reason='teacher_not_approved', ip=request.remote_addr)
                 flash('계정 승인 대기 중입니다. 관리자에게 문의하세요.', 'warning')
                 return render_template('pending_approval.html')
 
@@ -42,6 +46,8 @@ def login():
             session.permanent = True  # PERMANENT_SESSION_LIFETIME 적용 (12시간)
             session['_session_token'] = user.session_token  # DB 교체 감지용 토큰
             login_user(user)
+            log_audit('auth.login_success', username=username, role=user.role,
+                      ip=request.remote_addr)
 
             # next 파라미터가 있고 안전한 URL이면 해당 페이지로 이동
             if next_page and is_safe_url(next_page):
@@ -54,6 +60,8 @@ def login():
                 return redirect(url_for('teacher.dashboard'))
             return redirect(url_for('student.dashboard'))
 
+        log_audit('auth.login_fail', level='warning', username=username,
+                  ip=request.remote_addr)
         flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'danger')
 
     return render_template('login.html', next=next_page)
@@ -85,16 +93,9 @@ def register():
             return render_template('register.html')
 
         # 비밀번호 안전성 검사
-        if len(password) < 8:
-            flash('비밀번호는 8자 이상이어야 합니다.', 'danger')
-            return render_template('register.html')
-
-        if not any(c.isdigit() for c in password):
-            flash('비밀번호에 숫자가 포함되어야 합니다.', 'danger')
-            return render_template('register.html')
-
-        if not any(c.isalpha() for c in password):
-            flash('비밀번호에 영문자가 포함되어야 합니다.', 'danger')
+        ok, err = validate_password(password)
+        if not ok:
+            flash(err, 'danger')
             return render_template('register.html')
 
         if User.query.filter_by(username=username).first():
@@ -103,8 +104,9 @@ def register():
 
         # 학번 유효성 검사 (학생만)
         if role == 'student':
-            if not student_id.isdigit() or len(student_id) != 5:
-                flash('학번은 숫자 5자리로 입력하세요.', 'danger')
+            ok, err = validate_student_id(student_id)
+            if not ok:
+                flash(err, 'danger')
                 return render_template('register.html')
             if User.query.filter_by(student_id=student_id).first():
                 flash('이미 등록된 학번입니다.', 'danger')
@@ -138,6 +140,7 @@ def register():
 @auth_bp.route('/logout', methods=['POST'])
 @login_required
 def logout():
+    log_audit('auth.logout', username=current_user.username, role=current_user.role)
     logout_user()
     flash('로그아웃되었습니다.', 'info')
     return redirect(url_for('auth.login'))

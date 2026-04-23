@@ -35,6 +35,17 @@ class User(UserMixin, db.Model):
     attendances = db.relationship('Attendance', backref='user', lazy=True)
     study_logs = db.relationship('StudyLog', backref='user', lazy=True)
 
+    __table_args__ = (
+        db.CheckConstraint(
+            "role IN ('student', 'teacher', 'admin')",
+            name='ck_users_role',
+        ),
+        db.CheckConstraint(
+            "gender IS NULL OR gender IN ('M', 'F')",
+            name='ck_users_gender',
+        ),
+    )
+
     def get_id(self):
         """Flask-Login 세션 식별자 — 숫자 PK 대신 username 사용 (DB 교체 시 ID 충돌 방지)"""
         return self.username
@@ -82,6 +93,10 @@ class Attendance(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('user_id', 'date', 'period', name='uq_attendance_user_date_period'),
+        db.CheckConstraint(
+            "status IN ('present', 'late', 'absent', 'early_leave', 'approved_leave', 'after_school')",
+            name='ck_attendance_status',
+        ),
     )
 
 
@@ -151,6 +166,9 @@ class StudentRoom(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('user_id', name='uq_user_room'),
+        # 같은 방 안에서 좌석 번호 중복 방지. seat_number=NULL(번호 미배정)은
+        # SQLite가 NULL을 distinct로 취급하므로 여러 행이 공존 가능하다.
+        db.UniqueConstraint('study_room_id', 'seat_number', name='uq_room_seat'),
     )
 
 
@@ -169,6 +187,22 @@ class StudyApplication(db.Model):
     __table_args__ = (
         db.UniqueConstraint('user_id', 'date', 'period', name='uq_user_date_period'),
     )
+
+
+class SystemSetting(db.Model):
+    """시스템 운영 설정 - 관리자 UI에서 수정 가능한 정책값."""
+    __tablename__ = 'system_settings'
+
+    key         = db.Column(db.String(50), primary_key=True)
+    value       = db.Column(db.String(200), nullable=False)  # 모든 값은 문자열로 저장, 읽을 때 캐스팅
+    value_type  = db.Column(db.String(10), nullable=False)   # 'int' | 'bool' | 'str'
+    description = db.Column(db.String(200))                   # 관리자 UI 표시용 설명
+    min_value   = db.Column(db.Integer)                       # int 타입 검증 범위 (선택)
+    max_value   = db.Column(db.Integer)
+    updated_at  = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    updated_by  = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    updater = db.relationship('User', foreign_keys=[updated_by])
 
 
 class AttendanceLog(db.Model):

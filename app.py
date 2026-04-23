@@ -3,36 +3,55 @@
 Flask 웹 애플리케이션 진입점
 """
 
+import logging
 import os
 import sqlite3
 from datetime import timedelta, date, datetime
+from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for, session as flask_session
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from models import db, User, StudyPeriodSetting
+from constants import DEFAULT_PERIODS
+from settings import init_default_settings
+from audit import log_audit
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
 
-# 기본 자습 시간 설정 (period -> (start_time, end_time))
-DEFAULT_PERIODS = {
-    'weekday': {
-        0: ('07:30', '08:30'),
-        1: ('18:00', '19:00'),
-        2: ('19:10', '20:10'),
-        3: ('20:20', '21:20'),
-        4: ('21:30', '22:30'),
-    },
-    'saturday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-        3: ('11:20', '12:20'),
-    },
-    'holiday': {
-        1: ('09:00', '10:00'),
-        2: ('10:10', '11:10'),
-    },
-}
+def _configure_logging(app):
+    """감사 로거 + Flask 앱 로거를 파일 회전 핸들러에 연결한다.
+
+    logs/audit.log: 구조화된 감사 이벤트 (5MB * 5개 회전)
+    stdout: 콘솔 표시용 (Waitress 표준 출력으로 따라감)
+    """
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+
+    fmt = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
+    file_handler = RotatingFileHandler(
+        os.path.join(log_dir, 'audit.log'),
+        maxBytes=5 * 1024 * 1024, backupCount=5, encoding='utf-8',
+    )
+    file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.INFO)
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    console.setLevel(logging.INFO)
+
+    for name in ('self_study.audit', 'self_study.app'):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.INFO)
+        # 중복 핸들러 방지 (reload 시)
+        if not lg.handlers:
+            lg.addHandler(file_handler)
+            lg.addHandler(console)
+        lg.propagate = False
 
 
 def init_default_period_settings():
@@ -70,6 +89,9 @@ def _set_sqlite_pragmas(dbapi_conn, _):
 def create_app():
     app = Flask(__name__)
 
+    # 로깅 먼저 구성 (초기화 과정에서 이미 이벤트 기록 가능하도록)
+    _configure_logging(app)
+
     # 설정
     basedir = os.path.abspath(os.path.dirname(__file__))
     secret_key_file = os.path.join(basedir, 'instance', 'secret_key.txt')
@@ -89,6 +111,8 @@ def create_app():
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)  # 12시간 후 자동 만료
     app.config['SESSION_COOKIE_HTTPONLY'] = True   # JS에서 세션 쿠키 접근 차단
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF 방어
+    # 업로드 크기 상한 (메모리 압박 방어). 학교 DB는 수십 MB 수준.
+    app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024   # 50 MB
 
     # instance 폴더 생성
     os.makedirs(os.path.join(basedir, 'instance'), exist_ok=True)
@@ -137,6 +161,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         init_default_period_settings()
+        init_default_settings()
         _init_admin_account()
 
     # 야간 자동 조퇴 처리 스케줄러 시작
@@ -161,6 +186,8 @@ def _init_admin_account():
     db.session.add(admin)
     db.session.commit()
 
+    log_audit('system.admin_account_created', username='admin')
+    # 콘솔 안내는 유지 - 학교 관리자가 최초 설치 시 비밀번호 메모를 남겨야 함
     print("\n" + "=" * 50)
     print("  [관리자 계정 자동 생성]")
     print(f"  아이디: admin")
@@ -196,10 +223,10 @@ def _auto_early_leave(app):
                 changed += 1
             db.session.commit()
             if changed:
-                print(f'[스케줄러] {today} 퇴실 미확인 {changed}명 → 조퇴 처리')
+                log_audit('system.auto_early_leave', date=str(today), count=changed)
         except Exception as e:
             db.session.rollback()
-            print(f'[스케줄러] 자동 조퇴 처리 오류: {e}')
+            log_audit('system.auto_early_leave_failed', level='error', error=str(e))
 
 
 def _start_scheduler(app):
@@ -217,8 +244,9 @@ def _start_scheduler(app):
             replace_existing=True,
         )
         scheduler.start()
+        log_audit('system.scheduler_started')
     except Exception as e:
-        print(f'[경고] 스케줄러 시작 실패: {e}')
+        log_audit('system.scheduler_failed', level='error', error=str(e))
 
 
 def _get_lan_ip():
