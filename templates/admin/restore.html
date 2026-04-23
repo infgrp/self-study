@@ -15,8 +15,9 @@
         <li>이 시스템에서 내보낸 <strong>백업 Excel 파일</strong>(.xlsx)을 업로드합니다.</li>
         <li>이미 존재하는 학번의 학생 계정은 <strong>건너뜁니다</strong> (중복 생성 없음).</li>
         <li>이미 존재하는 출결·신청·기록도 중복 삽입하지 않습니다.</li>
-        <li>복원된 학생의 초기 비밀번호는 <code>학번 + Study1</code>입니다.<br>
-            (예: 학번이 10101이면 비밀번호는 <code>10101Study1</code>)</li>
+        <li>복원 후 새로 생성된 계정의 임시 비밀번호는 <strong>별도 Excel 파일로 즉시 다운로드</strong>됩니다.<br>
+            이 파일은 <strong>다시 조회할 수 없으므로</strong> 안전하게 보관한 뒤 사용자에게 개별 전달하세요.</li>
+        <li>자습실 QR 토큰은 복원 시 <strong>새로 발급</strong>되므로, 자습실을 함께 복원하면 QR코드를 다시 인쇄·부착해야 합니다.</li>
     </ul>
 </div>
 
@@ -50,7 +51,7 @@
                                name="options" value="teachers" id="opt-teachers" checked>
                         <label class="form-check-label" for="opt-teachers">
                             <strong>교사 계정</strong>
-                            <span class="text-muted small">(시트: 교사명단 — 아이디·이름·승인여부·담당학년·비밀번호)</span>
+                            <span class="text-muted small">(시트: 교사명단 — 아이디·이름·승인여부·담당학년)</span>
                         </label>
                     </div>
                     <div class="form-check">
@@ -58,7 +59,7 @@
                                name="options" value="admins" id="opt-admins" checked>
                         <label class="form-check-label" for="opt-admins">
                             <strong>관리자 계정</strong>
-                            <span class="text-muted small">(시트: 관리자 — 아이디·이름·비밀번호)</span>
+                            <span class="text-muted small">(시트: 관리자 — 아이디·이름)</span>
                         </label>
                     </div>
                     <div class="form-check">
@@ -106,7 +107,7 @@
                                name="options" value="study_rooms" id="opt-study-rooms" checked>
                         <label class="form-check-label" for="opt-study-rooms">
                             <strong>자습실 목록</strong>
-                            <span class="text-muted small">(시트: 자습실목록 — 자습실명·정원·QR토큰)</span>
+                            <span class="text-muted small">(시트: 자습실목록 — 자습실명·정원·활성화·순서. QR 토큰은 복원 시 새로 발급)</span>
                         </label>
                     </div>
                     <div class="form-check">
