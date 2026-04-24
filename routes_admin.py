@@ -1292,6 +1292,12 @@ def db_restore():
         '이전 DB는 self_study.db.prev 파일로 보존되어 있습니다.',
         'success'
     )
+    flash(
+        '※ 보안상 모든 사용자(관리자 본인 포함)의 세션이 무효화됩니다. '
+        '다음 페이지 이동 시 자동으로 로그인 화면으로 이동하므로, '
+        '복원한 DB의 비밀번호로 새로 로그인해 주세요.',
+        'warning'
+    )
     return redirect(url_for('admin_bp.dashboard'))
 
 

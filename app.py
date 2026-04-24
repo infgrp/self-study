@@ -6,6 +6,7 @@ Flask 웹 애플리케이션 진입점
 import logging
 import os
 import sqlite3
+import uuid
 from datetime import timedelta, date, datetime
 from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for, session as flask_session
@@ -104,6 +105,37 @@ def _verify_db_constraints(app):
         print('  -> 서버를 일시 중지한 뒤 다음 명령을 실행하십시오:')
         print('      python migrate_add_constraints_v2.py')
         print('!' * 60 + '\n')
+
+
+def _backfill_session_tokens():
+    """기존 사용자에게 NULL/빈 session_token이 있으면 UUID로 채운다.
+
+    이 컬럼은 v1.7부터 도입됐지만 옛 DB에서 ALTER TABLE만 수행되고
+    백필이 누락된 경우, 또는 직접 SQL로 사용자가 추가된 경우 NULL일 수 있다.
+    NULL이면 다음 두 가지 문제가 발생한다.
+      1) login_manager의 user_loader가 None 비교에서 항상 불일치로 판정 → 로그인 무한 실패
+      2) migrate_add_constraints_v2.py의 NOT NULL 제약 재구축 시 SQL 오류
+
+    부팅 시점에 멱등하게 채워서 두 위험을 차단한다.
+    """
+    try:
+        rows = User.query.filter(
+            (User.session_token.is_(None)) | (User.session_token == '')
+        ).all()
+    except Exception as e:
+        # 컬럼 자체가 없는 옛 DB는 migrate.py를 먼저 실행해야 함
+        log_audit('system.session_token_check_failed', level='error',
+                  error=str(e), action='run_migrate_py_first')
+        return
+
+    if not rows:
+        return
+
+    for u in rows:
+        u.session_token = str(uuid.uuid4())
+    db.session.commit()
+    log_audit('system.session_token_backfilled', level='warning', count=len(rows))
+    print(f'\n[참고] {len(rows)}명 사용자의 session_token이 비어 있어 UUID로 채웠습니다.\n')
 
 
 def init_default_period_settings():
@@ -215,6 +247,8 @@ def create_app():
         init_default_period_settings()
         init_default_settings()
         _init_admin_account()
+        # 옛 DB에서 session_token이 NULL인 행을 안전하게 채움 (login 꼬임 방지)
+        _backfill_session_tokens()
         # 기존 DB가 마이그레이션 안 된 경우를 가시화 (db.create_all은 기존 테이블 미변경)
         _verify_db_constraints(app)
 

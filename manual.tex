@@ -474,6 +474,8 @@ tasklist | findstr python
 \texttt{system.scheduler\_started}  & 야간 자동 처리 스케줄러 시작 \\
 \texttt{system.auto\_early\_leave}  & 자정 자동 조퇴 처리 (퇴실 미확인) \\
 \texttt{system.constraints\_missing} & 부팅 시 DB 무결성 제약 누락 감지 (WARNING). 마이그레이션 미실행 의미 \\
+\texttt{system.session\_token\_backfilled} & 부팅 시 NULL session\_token 발견 → UUID 자동 채움 (WARNING) \\
+\texttt{system.session\_token\_check\_failed} & session\_token 컬럼 자체가 없음 → \texttt{migrate.py} 실행 필요 (ERROR) \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -2443,6 +2445,9 @@ Excel 백업 (.xlsx) &
   \item 복원 전 기존 DB는 서버에 \texttt{self\_study.db.prev} 파일로 자동 보관됩니다.
   \item 업로드 파일은 메모리에 전부 올리지 않고 디스크로 스트리밍되며,
         매직 바이트와 스키마 검증 후에만 적용됩니다.
+  \item 복원 직후 \textbf{관리자 본인 포함 모든 사용자의 세션이 무효화}됩니다.
+        보안상 의도된 동작이며(\texttt{session\_token} 불일치로 자동 차단),
+        새 DB의 비밀번호로 다시 로그인하면 됩니다.
 \end{itemize}
 
 \begin{notebox}
