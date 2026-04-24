@@ -473,6 +473,7 @@ tasklist | findstr python
 \texttt{system.admin\_account\_created} & 최초 부팅 시 admin 계정 자동 생성 \\
 \texttt{system.scheduler\_started}  & 야간 자동 처리 스케줄러 시작 \\
 \texttt{system.auto\_early\_leave}  & 자정 자동 조퇴 처리 (퇴실 미확인) \\
+\texttt{system.constraints\_missing} & 부팅 시 DB 무결성 제약 누락 감지 (WARNING). 마이그레이션 미실행 의미 \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -2665,6 +2666,25 @@ python migrate_add_constraints_v2.py
 스크립트가 중단되고 해당 행을 출력합니다.
 관리자 UI 또는 직접 SQL로 정정한 뒤 재실행하십시오. 중복 좌석은 한 쪽의 \texttt{seat\_number}를
 \texttt{NULL}로 변경하면 제약을 피하면서 배정 관계는 유지할 수 있습니다.
+
+\subparagraph*{부팅 시 자동 감지 (안전망)}
+
+\texttt{models.py}에 \texttt{CheckConstraint}/\texttt{UniqueConstraint}를 추가해도
+SQLAlchemy의 \texttt{db.create\_all()}은 \textbf{기존 테이블을 변경하지 않습니다}.
+즉, 코드만 업데이트하고 마이그레이션을 실행하지 않으면 운영 DB에는 제약이 없는 상태가 유지됩니다.
+
+이 위험을 가시화하기 위해 앱 부팅 시 4개 핵심 제약(\texttt{ck\_users\_role},
+\texttt{ck\_users\_gender}, \texttt{ck\_attendance\_status}, \texttt{uq\_room\_seat})의 적용 여부를
+자동 검사합니다. 누락 시:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{logs/audit.log}에 \texttt{system.constraints\_missing} 이벤트 기록 (WARNING)
+  \item 콘솔에 \texttt{!!!} 경고 박스 출력 (\texttt{logs/app.log}에도 남음)
+  \item 앱은 \textbf{정상 부팅} (운영 중단 X) --- 관리자가 마이그레이션을 수행하도록 유도
+\end{itemize}
+
+따라서 코드 업데이트 후 운영 PC를 재시작했을 때 \texttt{logs/audit.log}나 콘솔에
+이 경고가 보이면 \textbf{즉시} \texttt{python migrate\_add\_constraints\_v2.py}를 실행하십시오.
 
 \begin{warnbox}
   이 마이그레이션은 \textbf{테이블을 완전히 재구축}합니다.

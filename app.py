@@ -54,6 +54,58 @@ def _configure_logging(app):
         lg.propagate = False
 
 
+# 부팅 시 기존 DB에 적용 여부를 검증할 핵심 무결성 제약 마커.
+# (SQLAlchemy db.create_all()은 기존 테이블을 변경하지 않으므로,
+#  models.py에 CheckConstraint를 추가해도 기존 운영 DB에는 자동 반영되지 않는다.
+#  반드시 migrate_add_constraints_v2.py를 1회 실행해야 적용된다.)
+_EXPECTED_DB_CONSTRAINTS = [
+    ('users',         'ck_users_role'),
+    ('users',         'ck_users_gender'),
+    ('attendance',    'ck_attendance_status'),
+    ('student_rooms', 'uq_room_seat'),
+]
+
+
+def _verify_db_constraints(app):
+    """기존 DB에 핵심 무결성 제약이 적용됐는지 검사한다.
+
+    누락 시:
+      - logs/audit.log에 WARNING (system.constraints_missing) 기록
+      - 콘솔에 즉시 식별 가능한 경고 박스 출력
+      - 앱은 정상 부팅 (운영 중단 X) — 관리자가 마이그레이션을 수행하도록 유도
+    """
+    db_path = os.path.join(os.path.dirname(__file__), 'instance', 'self_study.db')
+    if not os.path.exists(db_path):
+        return  # 신규 설치 — db.create_all()이 직전에 만들었으면 제약 포함됨
+
+    missing = []
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        for table, marker in _EXPECTED_DB_CONSTRAINTS:
+            cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,))
+            row = cur.fetchone()
+            if not row or not row[0] or marker not in row[0]:
+                missing.append(f'{table}.{marker}')
+    finally:
+        conn.close()
+
+    if missing:
+        log_audit(
+            'system.constraints_missing',
+            level='warning',
+            constraints=','.join(missing),
+            action='run_migrate_add_constraints_v2',
+        )
+        print('\n' + '!' * 60)
+        print('  [경고] 데이터 무결성 제약 누락 발견 - 다음 항목이 DB에 없음:')
+        for m in missing:
+            print(f'      - {m}')
+        print('  -> 서버를 일시 중지한 뒤 다음 명령을 실행하십시오:')
+        print('      python migrate_add_constraints_v2.py')
+        print('!' * 60 + '\n')
+
+
 def init_default_period_settings():
     """기본 자습 시간 설정을 DB에 초기화"""
     for day_type, periods in DEFAULT_PERIODS.items():
@@ -163,6 +215,8 @@ def create_app():
         init_default_period_settings()
         init_default_settings()
         _init_admin_account()
+        # 기존 DB가 마이그레이션 안 된 경우를 가시화 (db.create_all은 기존 테이블 미변경)
+        _verify_db_constraints(app)
 
     # 야간 자동 조퇴 처리 스케줄러 시작
     _start_scheduler(app)
