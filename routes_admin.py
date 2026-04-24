@@ -385,14 +385,16 @@ def new_year_backup():
     from collections import defaultdict
     import calendar as cal_mod
     summary = defaultdict(lambda: {'present': 0, 'late': 0, 'absent': 0,
-                                   'early_leave': 0, 'approved_leave': 0})
+                                   'early_leave': 0, 'approved_leave': 0,
+                                   'after_school': 0})
     for att in Attendance.query.all():
         key = (att.user_id, att.date.year, att.date.month)
         if att.status in summary[key]:
             summary[key][att.status] += 1
 
     make_header(ws2, ['학번', '이름', '학년', '반', '연도', '월',
-                      '출석', '지각', '결석', '조퇴', '출석인정', '신청', '참여율(%)'])
+                      '출석', '지각', '결석', '조퇴', '출석인정', '방과후출결',
+                      '신청', '참여율(%)'])
     students = {s.id: s for s in User.query.filter_by(role='student').all()}
     app_count = defaultdict(int)
     for app in StudyApplication.query.all():
@@ -403,15 +405,17 @@ def new_year_backup():
         s = students.get(uid)
         if not s:
             continue
-        applied  = app_count[(uid, yr, mo)]
-        present  = cnt['present']
-        late     = cnt['late']
-        approved = cnt['approved_leave']
-        rate = round((present + late + approved) / applied * 100) if applied else 0
+        applied      = app_count[(uid, yr, mo)]
+        present      = cnt['present']
+        late         = cnt['late']
+        approved     = cnt['approved_leave']
+        after_school = cnt['after_school']
+        # 참여율: 출석 + 지각 + 출석인정 + 방과후출결인정 (다른 집계와 정합)
+        rate = round((present + late + approved + after_school) / applied * 100) if applied else 0
         ws2.append([
             s.student_id, s.name, s.grade, s.class_num,
             yr, mo, present, late, cnt['absent'],
-            cnt['early_leave'], approved, applied, rate
+            cnt['early_leave'], approved, after_school, applied, rate
         ])
 
     # ── Sheet 3: 학습 기록 ──

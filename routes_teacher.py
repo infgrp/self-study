@@ -1408,13 +1408,14 @@ def student_report(user_id):
         StudyLog.date >= first_day, StudyLog.date <= last_day
     ).order_by(StudyLog.date.desc()).all()
 
-    # 출석: present / approved_leave(출석인정) / after_school(방과후출결인정) — 다른 집계와 정합
-    # 지각(late)은 별도 카운트
-    present_count = sum(1 for a in attendances if a.status in ('present', 'approved_leave', 'after_school'))
-    late_count    = sum(1 for a in attendances if a.status == 'late')
-    absent_count  = sum(1 for a in attendances if a.status == 'absent')
-    approved_count = sum(1 for a in attendances if a.status == 'approved_leave')
-    applied_count = len(applications)
+    # 각 카운트는 상호 배타적이어야 한다 (rate에서 이중 계산 방지).
+    # 템플릿이 present_count를 "출석" 라벨로 표시하므로 present_count는 좁게 유지.
+    # approved_count는 출석인정 + 방과후출결인정을 합산 (둘 다 사실상 출석 처리).
+    present_count  = sum(1 for a in attendances if a.status == 'present')
+    late_count     = sum(1 for a in attendances if a.status == 'late')
+    absent_count   = sum(1 for a in attendances if a.status == 'absent')
+    approved_count = sum(1 for a in attendances if a.status in ('approved_leave', 'after_school'))
+    applied_count  = len(applications)
     rate = round((present_count + late_count + approved_count) / applied_count * 100, 1) if applied_count > 0 else 0
     total_study_min = sum(l.duration for l in study_logs)
 
