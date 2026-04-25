@@ -166,9 +166,11 @@ class StudentRoom(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('user_id', name='uq_user_room'),
-        # 같은 방 안에서 좌석 번호 중복 방지. seat_number=NULL(번호 미배정)은
-        # SQLite가 NULL을 distinct로 취급하므로 여러 행이 공존 가능하다.
-        db.UniqueConstraint('study_room_id', 'seat_number', name='uq_room_seat'),
+        # NOTE: (study_room_id, seat_number) UNIQUE는 의도적으로 두지 않는다.
+        # 자습실은 남/여 zone이 물리적으로 분리되어 같은 좌석 번호가 zone마다 존재한다
+        # (남학생 1번 / 여학생 1번이 다른 물리 좌석). 표현력 부족한 (room, seat) UNIQUE는
+        # 정상 배정도 IntegrityError로 막아버리므로 적용 안 함. zone 내 중복 방지는
+        # 코드 레벨(random.sample, used_m/used_f set)이 담당한다.
     )
 
 

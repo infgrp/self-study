@@ -621,9 +621,10 @@ def attendance_update():
     if att:
         att.status = new_status
         # study_room_id는 기존 기록 유지 — 과거 자습실 이력 보존
+        # 사유 메모는 항상 새 값으로 덮어씀 — 빈 값이면 None.
+        # (기존 코드는 빈 사유면 옛 메모를 유지해, 상태 변경 후 무관한 메모가 남는 버그 있었음)
         if new_status in ('early_leave', 'approved_leave', 'after_school'):
-            if early_leave_note:
-                att.early_leave_note = early_leave_note
+            att.early_leave_note = early_leave_note or None
         else:
             att.early_leave_note = None
     else:
@@ -1312,7 +1313,11 @@ def attendance_auto_process():
     except ValueError:
         view_date = date.today()
 
-    grade_filter = request.form.get('grade', type=int)
+    # 담당 학년 교사는 자기 학년만 처리 가능 - form의 grade를 신뢰하지 않는다
+    if current_user.assigned_grade:
+        grade_filter = current_user.assigned_grade
+    else:
+        grade_filter = request.form.get('grade', type=int)
     room_filter  = request.form.get('room',  type=int)
     # 폼의 day_type를 신뢰하지 않고 서버에서 직접 계산
     day_type = get_day_type(view_date)
@@ -1341,7 +1346,21 @@ def attendance_auto_process():
                 grade_ids &= room_ids
             apps = [a for a in apps if a.user_id in grade_ids]
         for app in apps:
-            if Attendance.query.filter_by(user_id=app.user_id, date=view_date, period=period).first():
+            existing = Attendance.query.filter_by(
+                user_id=app.user_id, date=view_date, period=period).first()
+            if existing:
+                # 승격 케이스: 시작 직후 자동처리로 late가 박혔는데 끝까지 미입실이면 absent로 승격
+                # (오늘 + 종료 시각 지남 + 아직 입실 미확인 + 현재 late 상태)
+                if (is_today
+                        and now_dt >= end_dt
+                        and existing.status == 'late'
+                        and existing.checked_at is None):
+                    db.session.add(AttendanceLog(
+                        attendance_id=existing.id, changed_by=current_user.id,
+                        old_status='late', new_status='absent', note='자동승격(미입실)',
+                    ))
+                    existing.status = 'absent'
+                    processed += 1
                 continue
             sr = StudentRoom.query.filter_by(user_id=app.user_id).first()
             att = Attendance(
@@ -1588,8 +1607,11 @@ def export_attendance_range():
         flash('교시를 하나 이상 선택하세요.', 'warning')
         return redirect(url_for('teacher.attendance_view'))
 
-    # 학년 필터 (0 또는 미지정 → 전체)
-    grade_filter = request.args.get('grade', type=int)
+    # 학년 필터 (담당 학년 교사는 자기 학년 강제, 그 외 0/미지정은 전체)
+    if current_user.assigned_grade:
+        grade_filter = current_user.assigned_grade
+    else:
+        grade_filter = request.args.get('grade', type=int)
 
     # 날짜 목록 (토·일 제외 옵션 없이 전부 포함)
     delta = (date_to - date_from).days + 1

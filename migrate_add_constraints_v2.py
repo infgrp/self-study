@@ -48,13 +48,9 @@ PRE_CHECKS = [
                   "WHERE status NOT IN ('present','late','absent','early_leave','approved_leave','after_school')"),
         'msg': "attendance.status 위반 행",
     },
-    {
-        'name': 'student_rooms uniqueness',
-        'query': ("SELECT study_room_id, seat_number, COUNT(*) AS c "
-                  "FROM student_rooms WHERE seat_number IS NOT NULL "
-                  "GROUP BY study_room_id, seat_number HAVING c > 1"),
-        'msg': "student_rooms (study_room_id, seat_number) 중복 행 (NULL은 허용됨)",
-    },
+    # NOTE: student_rooms (study_room_id, seat_number) 중복 검사는 제거됨.
+    # 남/여 zone 구조에서는 같은 번호가 정상이며 zone 정보가 user.gender로만 표현되어
+    # SQL UNIQUE로 모델링하기 어렵다. 코드 레벨에서 zone 내 중복을 막는다.
 ]
 
 
@@ -153,27 +149,9 @@ REBUILD_STATEMENTS = {
             FROM attendance
         """,
     },
-    'student_rooms': {
-        'marker': "uq_room_seat",
-        'create_new': """
-            CREATE TABLE student_rooms_new (
-                id            INTEGER PRIMARY KEY,
-                user_id       INTEGER NOT NULL REFERENCES users(id),
-                study_room_id INTEGER NOT NULL REFERENCES study_rooms(id),
-                seat_number   INTEGER,
-                pos_x         REAL,
-                pos_y         REAL,
-                CONSTRAINT uq_user_room UNIQUE (user_id),
-                CONSTRAINT uq_room_seat UNIQUE (study_room_id, seat_number)
-            )
-        """,
-        'copy': """
-            INSERT INTO student_rooms_new
-              (id, user_id, study_room_id, seat_number, pos_x, pos_y)
-            SELECT id, user_id, study_room_id, seat_number, pos_x, pos_y
-            FROM student_rooms
-        """,
-    },
+    # NOTE: student_rooms는 더 이상 재구축 대상 아님.
+    # 초기 v2에서 uq_room_seat 제약을 추가했으나 남/여 zone 구조와 충돌해 제거됨
+    # (migrate_drop_room_seat_uq.py로 별도 처치).
 }
 
 
@@ -213,7 +191,7 @@ def main():
         print("\n[2/3] 테이블 재구축 (트랜잭션)...")
         cur.execute("BEGIN")
         rebuilt = 0
-        for table in ('users', 'attendance', 'student_rooms'):
+        for table in ('users', 'attendance'):
             if rebuild_table(cur, table):
                 rebuilt += 1
         conn.commit()

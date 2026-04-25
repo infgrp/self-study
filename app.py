@@ -63,7 +63,9 @@ _EXPECTED_DB_CONSTRAINTS = [
     ('users',         'ck_users_role'),
     ('users',         'ck_users_gender'),
     ('attendance',    'ck_attendance_status'),
-    ('student_rooms', 'uq_room_seat'),
+    # NOTE: student_rooms.uq_room_seat은 의도적으로 제거됨 (남/여 zone이 같은
+    # 좌석 번호를 공유하는 구조라 (room, seat) UNIQUE는 정상 배정도 막아버림).
+    # 자세한 배경은 migrate_drop_room_seat_uq.py 참조.
 ]
 
 
@@ -285,7 +287,8 @@ def _init_admin_account():
 
 
 def _auto_early_leave(app):
-    """매일 23:59 — 입실 QR을 찍었지만 퇴실 QR을 찍지 않은 학생을 조퇴로 처리."""
+    """매일 23:59 — 입실 QR을 찍었지만 퇴실 QR을 찍지 않은 학생을 조퇴로 처리.
+    present뿐 아니라 late(지각 입실)도 대상에 포함한다."""
     from models import Attendance, AttendanceLog
     with app.app_context():
         today = date.today()
@@ -293,18 +296,19 @@ def _auto_early_leave(app):
         try:
             targets = Attendance.query.filter(
                 Attendance.date == today,
-                Attendance.status == 'present',
+                Attendance.status.in_(['present', 'late']),
                 Attendance.checked_at.isnot(None),
                 Attendance.checked_out_at.is_(None),
             ).all()
             for att in targets:
+                old_status = att.status   # 'present' 또는 'late' — 동적 캡처
                 att.status = 'early_leave'
                 att.checked_out_at = datetime.combine(today, datetime.strptime('23:59', '%H:%M').time())
                 att.early_leave_note = (att.early_leave_note or '') or '퇴실미확인(자동)'
                 db.session.add(AttendanceLog(
                     attendance_id=att.id,
                     changed_by=None,
-                    old_status='present',
+                    old_status=old_status,
                     new_status='early_leave',
                     note='퇴실미확인(자동)',
                 ))
