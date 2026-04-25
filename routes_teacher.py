@@ -1319,8 +1319,16 @@ def attendance_auto_process():
     else:
         grade_filter = request.form.get('grade', type=int)
     room_filter  = request.form.get('room',  type=int)
-    # 폼의 day_type를 신뢰하지 않고 서버에서 직접 계산
-    day_type = get_day_type(view_date)
+    # attendance_view의 토요일/공휴일 override를 자동처리에도 동일하게 반영해야
+    # 화면-서버 기준 불일치를 막는다. (form의 day_type 자체는 신뢰하지 않고 서버에서 재계산)
+    is_saturday = request.form.get('is_saturday') == 'on'
+    is_holiday  = request.form.get('is_holiday')  == 'on'
+    if is_holiday:
+        day_type = 'holiday'
+    elif is_saturday:
+        day_type = 'saturday'
+    else:
+        day_type = get_day_type(view_date)
     period_times = get_period_settings(day_type)
     now_dt   = datetime.now()
     is_today = (view_date == date.today())

@@ -548,7 +548,11 @@ def qr_checkout(token):
             break
 
     if current_period is None:
-        flash('퇴실 처리 가능한 교시가 없습니다. (자습 시간 종료 10분 후까지만 퇴실 QR이 동작합니다.)', 'warning')
+        flash(
+            f'퇴실 처리 가능한 교시가 없습니다. '
+            f'(자습 시간 종료 {checkout_grace_minutes}분 후까지만 퇴실 QR이 동작합니다.)',
+            'warning'
+        )
         return redirect(url_for('student.dashboard'))
 
     # 입실 출석 기록 확인
@@ -567,7 +571,10 @@ def qr_checkout(token):
         return redirect(url_for('student.dashboard'))
     assigned = StudentRoom.query.filter_by(user_id=current_user.id).first()
     if att.study_room_id is None and assigned and assigned.study_room_id != room.id:
-        flash(f'배정된 자습실({room.name})의 QR코드를 사용하세요.', 'danger')
+        # room은 학생이 방금 잘못 스캔한 자습실. 실제 배정된 자습실 이름을 조회해 안내한다.
+        assigned_room = db.session.get(StudyRoom, assigned.study_room_id)
+        assigned_name = assigned_room.name if assigned_room else '(알 수 없음)'
+        flash(f'배정된 자습실({assigned_name})의 QR코드를 사용하세요.', 'danger')
         return redirect(url_for('student.dashboard'))
 
     # 퇴실 시각 갱신 (재스캔 시 최종 스캔 시각으로 업데이트)

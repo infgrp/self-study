@@ -737,6 +737,7 @@ def _restore_attendance_sheet(wb, result, sid_to_user):
             result['attendance'] += 1
         except Exception as e:
             result['errors'].append(f'출결 행 오류: {e}')
+    _try_flush_or_abort('출결')
 
 
 def _restore_applications_sheet(wb, result, sid_to_user):
@@ -760,6 +761,7 @@ def _restore_applications_sheet(wb, result, sid_to_user):
             result['applications'] += 1
         except Exception as e:
             result['errors'].append(f'신청 행 오류: {e}')
+    _try_flush_or_abort('자습 신청')
 
 
 def _restore_study_logs_sheet(wb, result, sid_to_user):
@@ -786,6 +788,7 @@ def _restore_study_logs_sheet(wb, result, sid_to_user):
             result['study_logs'] += 1
         except Exception as e:
             result['errors'].append(f'학습기록 행 오류: {e}')
+    _try_flush_or_abort('학습 기록')
 
 
 def _restore_teachers_sheet(wb, result, temp_credentials):
@@ -869,6 +872,7 @@ def _restore_holidays_sheet(wb, result):
             result['holidays'] += 1
         except Exception as e:
             result['errors'].append(f'공휴일 행 오류: {e}')
+    _try_flush_or_abort('공휴일')
 
 
 def _restore_period_settings_sheet(wb, result):
@@ -913,6 +917,7 @@ def _restore_period_settings_sheet(wb, result):
             result['period_settings'] += 1
         except Exception as e:
             result['errors'].append(f'자습시간설정 행 오류: {e}')
+    _try_flush_or_abort('자습시간설정')
 
 
 def _restore_room_assignments_sheet(wb, result):
@@ -947,6 +952,7 @@ def _restore_room_assignments_sheet(wb, result):
             result['room_assignments'] += 1
         except Exception as e:
             result['errors'].append(f'자습실배정 행 오류: {e}')
+    _try_flush_or_abort('자습실 배정')
 
 
 def _restore_schedules_sheet(wb, result):
@@ -1280,6 +1286,11 @@ def db_restore():
         db.engine.dispose()
         os.replace(tmp_path, DB_PATH)
         tmp_path = None  # 성공 시 삭제 생략
+
+        # 옛 DB 호환성: SystemSetting 등 누락 테이블 생성 + 기본값 시드 + session_token 백필
+        # (이 단계가 없으면 system_settings 없는 옛 DB 복원 후 모든 페이지가 500 에러)
+        from app import reinitialize_after_db_change
+        reinitialize_after_db_change()
 
     except Exception as e:
         flash(f'DB 복원 중 오류가 발생했습니다: {e}', 'danger')

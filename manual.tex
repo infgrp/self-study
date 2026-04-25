@@ -2447,6 +2447,9 @@ Excel 백업 (.xlsx) &
   \item 복원 직후 \textbf{관리자 본인 포함 모든 사용자의 세션이 무효화}됩니다.
         보안상 의도된 동작이며(\texttt{session\_token} 불일치로 자동 차단),
         새 DB의 비밀번호로 다시 로그인하면 됩니다.
+  \item 옛 버전 DB(예: \texttt{system\_settings} 테이블 없음)로 복원해도
+        직후 자동으로 누락 테이블이 생성되고 기본값이 시드되므로
+        후속 페이지에서 \texttt{no such table} 같은 500 에러가 발생하지 않습니다.
 \end{itemize}
 
 \begin{notebox}

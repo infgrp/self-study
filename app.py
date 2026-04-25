@@ -140,6 +140,23 @@ def _backfill_session_tokens():
     print(f'\n[참고] {len(rows)}명 사용자의 session_token이 비어 있어 UUID로 채웠습니다.\n')
 
 
+def reinitialize_after_db_change():
+    """DB가 외부에서 교체된 직후 (예: db_restore) 호출되어 다음을 수행한다.
+
+      - db.create_all(): 새 DB가 옛 스키마라 SystemSetting 등 누락 테이블이 있으면 생성
+      - init_default_period_settings(): 자습 시간 기본값 시드
+      - init_default_settings(): system_settings 8개 시드
+      - _backfill_session_tokens(): NULL session_token 채움
+
+    이 모두는 멱등하므로 정상 DB(이미 모두 있는)에서 호출해도 변경 없다.
+    호출자는 반드시 app context 내에서 실행해야 한다.
+    """
+    db.create_all()
+    init_default_period_settings()
+    init_default_settings()
+    _backfill_session_tokens()
+
+
 def init_default_period_settings():
     """기본 자습 시간 설정을 DB에 초기화"""
     for day_type, periods in DEFAULT_PERIODS.items():
