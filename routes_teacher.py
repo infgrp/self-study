@@ -7,7 +7,7 @@ from flask_login import login_required, current_user
 from models import db, User, Attendance, StudyLog, Holiday, StudyPeriodSetting, StudyRoom, StudentRoom, StudyApplication, AttendanceLog, Schedule
 from constants import DEFAULT_PERIODS, WEEKDAY_CODES
 from day_utils import get_day_type
-import settings
+import settings as app_settings
 from validators import validate_password
 from time_utils import validate_time_str, parse_time_str
 from sqlalchemy import func
@@ -769,7 +769,7 @@ def statistics():
         year, month = today.year, today.month
 
     # 참여율 기준 (기본값은 SystemSetting에서 조회)
-    min_rate = request.args.get('min_rate', settings.get_int('participation_rate_default', 80), type=int)
+    min_rate = request.args.get('min_rate', app_settings.get_int('participation_rate_default', 80), type=int)
 
     # 정렬 기준: 'total'(총 학습시간) 또는 'period_N'(N교시 학습시간)
     sort_by = request.args.get('sort_by', 'total')
@@ -1338,7 +1338,7 @@ def attendance_auto_process():
         if is_today:
             start_dt = datetime.combine(view_date, datetime.strptime(start_str, '%H:%M').time())
             end_dt   = datetime.combine(view_date, datetime.strptime(end_str,   '%H:%M').time())
-            late_threshold = start_dt + timedelta(minutes=settings.get_int('late_threshold_minutes', 10))
+            late_threshold = start_dt + timedelta(minutes=app_settings.get_int('late_threshold_minutes', 10))
             if now_dt < late_threshold:
                 continue
             status = 'absent' if now_dt >= end_dt else 'late'
@@ -1650,146 +1650,167 @@ def export_attendance_range():
                     'early_leave': 'F4CCCC', 'approved_leave': 'CFE2F3',
                     'after_school': 'D9C8F5'}
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = '기간별출결'
-
-    center  = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    hfill   = PatternFill(fill_type='solid', fgColor='4472C4')
-    dfill   = PatternFill(fill_type='solid', fgColor='D9E1F2')  # 날짜 구분 색
-
-    # ── 고정 헤더 열 ──
-    fixed_headers = ['이름', '학번', '학년', '반', '자습공간']
-    FIXED = len(fixed_headers)  # 5
-
-    # ── 날짜×교시 헤더 열 생성 ──
-    date_period_cols = []   # (date_obj, period)
-    for d in date_list:
-        for p in selected_periods:
-            date_period_cols.append((d, p))
-
-    total_cols = FIXED + len(date_period_cols)
-
-    # 1행: 제목
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_cols)
-    grade_label = f'{grade_filter}학년 ' if grade_filter else '전체 학년 '
-    t = ws.cell(row=1, column=1,
-                value=f'{grade_label}{date_from.strftime("%Y.%m.%d")} ~ {date_to.strftime("%Y.%m.%d")} 출결 현황 ({", ".join(str(p)+"교시" for p in selected_periods)})')
-    t.font = Font(bold=True, size=13)
-    t.alignment = center
-
-    # 2행: 날짜 병합 헤더
-    ws.row_dimensions[2].height = 18
-    for col, h in enumerate(fixed_headers, 1):
-        ws.merge_cells(start_row=2, start_column=col, end_row=3, end_column=col)
-        c = ws.cell(row=2, column=col, value=h)
-        c.font = Font(bold=True, color='FFFFFF')
-        c.alignment = center
-        c.fill = hfill
-
-    col_idx = FIXED + 1
-    for d in date_list:
-        span = len(selected_periods)
-        ws.merge_cells(start_row=2, start_column=col_idx,
-                        end_row=2, end_column=col_idx + span - 1)
-        dc = ws.cell(row=2, column=col_idx,
-                     value=d.strftime('%m/%d (%a)').replace('Mon','월').replace('Tue','화')
-                           .replace('Wed','수').replace('Thu','목').replace('Fri','금')
-                           .replace('Sat','토').replace('Sun','일'))
-        dc.font = Font(bold=True, color='FFFFFF')
-        dc.alignment = center
-        dc.fill = hfill
-        col_idx += span
-
-    # 3행: 교시 헤더
-    ws.row_dimensions[3].height = 16
-    for col in range(1, FIXED + 1):
-        c = ws.cell(row=3, column=col)
-        c.font = Font(bold=True, color='FFFFFF')
-        c.fill = hfill
-        c.alignment = center
-
-    for i, (d, p) in enumerate(date_period_cols):
-        c = ws.cell(row=3, column=FIXED + 1 + i, value=f'{p}교시')
-        c.font = Font(bold=True, color='FFFFFF')
-        c.alignment = center
-        c.fill = hfill
-
-    # 4행: 감독교사 서명 행
     from openpyxl.styles import Border, Side
     thick  = Side(style='medium', color='4472C4')
     thin   = Side(style='thin',   color='BFBFBF')
     medium = Side(style='medium', color='000000')
 
-    ws.row_dimensions[4].height = 45
-    sfill = PatternFill(fill_type='solid', fgColor='FFF2CC')   # 연노랑 배경
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '기간별출결'
 
-    # 고정열(A-E): 병합 후 레이블
-    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=FIXED)
-    lc = ws.cell(row=4, column=1, value='감독교사 서명')
-    lc.font = Font(bold=True, size=10)
-    lc.alignment = Alignment(horizontal='center', vertical='center')
-    lc.fill = sfill
-    lc.border = Border(top=medium, bottom=medium, left=medium, right=thin)
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    hfill  = PatternFill(fill_type='solid', fgColor='4472C4')
+    sfill  = PatternFill(fill_type='solid', fgColor='FFF2CC')
+    wfill  = PatternFill(fill_type='solid', fgColor='1F3864')
 
-    # 교시별 서명 칸: 각 날짜의 첫 교시에 날짜 레이블, 나머지는 서명 공간
-    for i, (d, p) in enumerate(date_period_cols):
-        col = FIXED + 1 + i
-        is_first_period = (p == selected_periods[0])
-        is_last_period  = (p == selected_periods[-1])
-        is_last_col     = (col == total_cols)
+    fixed_headers = ['이름', '학번', '학년', '반', '자습공간']
+    FIXED = len(fixed_headers)
 
-        label = f'{p}교시\n(서명)' if len(selected_periods) > 1 else '(서명)'
-        sc = ws.cell(row=4, column=col, value=label)
-        sc.font = Font(size=8, color='7F7F7F')
-        sc.alignment = Alignment(horizontal='center', vertical='bottom', wrap_text=True)
-        sc.fill = sfill
-        right_side = medium if (is_last_period and not is_last_col) else (medium if is_last_col else thin)
-        sc.border = Border(
-            top=medium, bottom=medium,
-            left=medium if is_first_period else thin,
-            right=right_side,
-        )
+    WEEKDAY_KO  = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
+    grade_label = f'{grade_filter}학년 ' if grade_filter else '전체 학년 '
 
-    # 5행~: 학생 데이터
-    for ri, s in enumerate(students, 5):
-        room_id = sr_map.get(s.id)
-        ws.cell(ri, 1, s.name)
-        ws.cell(ri, 2, s.student_id or '')
-        ws.cell(ri, 3, f'{s.grade}학년')
-        ws.cell(ri, 4, f'{s.class_num}반')
-        ws.cell(ri, 5, room_map.get(room_id, '미배정') if room_id else '미배정')
-        for col in range(1, FIXED + 1):
-            ws.cell(ri, col).alignment = Alignment(horizontal='center', vertical='center')
+    # date_list를 ISO 캘린더 주 단위로 묶기
+    weeks: list = []
+    cur_week_dates: list = []
+    for d in date_list:
+        if cur_week_dates and d.isocalendar()[:2] != cur_week_dates[0].isocalendar()[:2]:
+            weeks.append(cur_week_dates)
+            cur_week_dates = []
+        cur_week_dates.append(d)
+    if cur_week_dates:
+        weeks.append(cur_week_dates)
 
-        for i, (d, p) in enumerate(date_period_cols):
-            att = att_map.get((s.id, d, p))
-            st  = att.status if att else None
-            cell = ws.cell(ri, FIXED + 1 + i, status_text.get(st, '-'))
-            cell.alignment = center
-            if st in status_color:
-                cell.fill = PatternFill(fill_type='solid', fgColor=status_color[st])
-
-    # ── 열 너비 ──
+    # 고정 열 너비
     ws.column_dimensions['A'].width = 10
     ws.column_dimensions['B'].width = 8
     ws.column_dimensions['C'].width = 7
     ws.column_dimensions['D'].width = 5
     ws.column_dimensions['E'].width = 12
-    for i in range(len(date_period_cols)):
-        col_letter = openpyxl.utils.get_column_letter(FIXED + 1 + i)
-        ws.column_dimensions[col_letter].width = 8
 
-    # ── 날짜 경계에 굵은 세로선 (2행~마지막 학생행) ──
-    for ri in range(2, 5 + len(students)):
-        if ri == 4:
-            continue   # 서명 행은 위에서 이미 처리
-        for i, (d, p) in enumerate(date_period_cols):
-            cell = ws.cell(ri, FIXED + 1 + i)
-            is_last_period  = (p == selected_periods[-1])
-            is_not_last_col = (FIXED + 1 + i < total_cols)
-            right_side = thick if (is_last_period and is_not_last_col) else thin
-            cell.border = Border(right=right_side, top=thin, bottom=thin, left=thin)
+    cur_row  = 1
+    week_num = 0
+
+    for week_dates in weeks:
+        week_num += 1
+        N       = len(selected_periods)
+        week_dp = [(d, p) for d in week_dates for p in selected_periods]
+        total_cols = FIXED + len(week_dp)
+
+        # ── 주차 타이틀 행 ──
+        ws.merge_cells(start_row=cur_row, start_column=1,
+                       end_row=cur_row, end_column=total_cols)
+        w_start = f'{week_dates[0].strftime("%m/%d")}({WEEKDAY_KO[week_dates[0].weekday()]})'
+        w_end   = f'{week_dates[-1].strftime("%m/%d")}({WEEKDAY_KO[week_dates[-1].weekday()]})'
+        t = ws.cell(row=cur_row, column=1,
+                    value=f'{grade_label}{week_num}주차  {w_start} ~ {w_end}  출결현황'
+                          f'  ({", ".join(str(p)+"교시" for p in selected_periods)})')
+        t.font      = Font(bold=True, size=12, color='FFFFFF')
+        t.alignment = center
+        t.fill      = wfill
+        ws.row_dimensions[cur_row].height = 22
+        cur_row += 1
+
+        # ── 날짜 병합 헤더 행 ──
+        ws.row_dimensions[cur_row].height = 18
+        for col, h in enumerate(fixed_headers, 1):
+            ws.merge_cells(start_row=cur_row, start_column=col,
+                           end_row=cur_row + 1, end_column=col)
+            c = ws.cell(row=cur_row, column=col, value=h)
+            c.font      = Font(bold=True, color='FFFFFF')
+            c.alignment = center
+            c.fill      = hfill
+        col_idx = FIXED + 1
+        for d in week_dates:
+            ws.merge_cells(start_row=cur_row, start_column=col_idx,
+                           end_row=cur_row, end_column=col_idx + N - 1)
+            dc = ws.cell(row=cur_row, column=col_idx,
+                         value=f'{d.strftime("%m/%d")}({WEEKDAY_KO[d.weekday()]})')
+            dc.font      = Font(bold=True, color='FFFFFF')
+            dc.alignment = center
+            dc.fill      = hfill
+            col_idx += N
+        cur_row += 1
+
+        # ── 교시 서브헤더 행 ──
+        ws.row_dimensions[cur_row].height = 16
+        for col in range(1, FIXED + 1):
+            c = ws.cell(row=cur_row, column=col)
+            c.font      = Font(bold=True, color='FFFFFF')
+            c.fill      = hfill
+            c.alignment = center
+        for i, (_, p) in enumerate(week_dp):
+            c = ws.cell(row=cur_row, column=FIXED + 1 + i, value=f'{p}교시')
+            c.font      = Font(bold=True, color='FFFFFF')
+            c.alignment = center
+            c.fill      = hfill
+        cur_row += 1
+
+        # ── 감독교사 서명 행 ──
+        ws.row_dimensions[cur_row].height = 45
+        ws.merge_cells(start_row=cur_row, start_column=1,
+                       end_row=cur_row, end_column=FIXED)
+        lc = ws.cell(row=cur_row, column=1, value='감독교사 서명')
+        lc.font      = Font(bold=True, size=10)
+        lc.alignment = Alignment(horizontal='center', vertical='center')
+        lc.fill      = sfill
+        lc.border    = Border(top=medium, bottom=medium, left=medium, right=thin)
+        for i, (_, p) in enumerate(week_dp):
+            col      = FIXED + 1 + i
+            is_first = (p == selected_periods[0])
+            is_last  = (p == selected_periods[-1])
+            label    = f'{p}교시\n(서명)' if N > 1 else '(서명)'
+            sc = ws.cell(row=cur_row, column=col, value=label)
+            sc.font      = Font(size=8, color='7F7F7F')
+            sc.alignment = Alignment(horizontal='center', vertical='bottom', wrap_text=True)
+            sc.fill      = sfill
+            sc.border    = Border(
+                top=medium, bottom=medium,
+                left=medium if is_first else thin,
+                right=medium if is_last else thin,
+            )
+        cur_row += 1
+
+        # ── 학생 데이터 행 ──
+        data_start = cur_row
+        for ri_off, s in enumerate(students):
+            ri = cur_row + ri_off
+            room_id = sr_map.get(s.id)
+            ws.cell(ri, 1, s.name)
+            ws.cell(ri, 2, s.student_id or '')
+            ws.cell(ri, 3, f'{s.grade}학년')
+            ws.cell(ri, 4, f'{s.class_num}반')
+            ws.cell(ri, 5, room_map.get(room_id, '미배정') if room_id else '미배정')
+            for col in range(1, FIXED + 1):
+                ws.cell(ri, col).alignment = Alignment(horizontal='center', vertical='center')
+            for i, (d, p) in enumerate(week_dp):
+                att  = att_map.get((s.id, d, p))
+                st   = att.status if att else None
+                cell = ws.cell(ri, FIXED + 1 + i, status_text.get(st, '-'))
+                cell.alignment = center
+                if st in status_color:
+                    cell.fill = PatternFill(fill_type='solid', fgColor=status_color[st])
+        cur_row += len(students)
+
+        # ── 날짜 경계 세로선 (날짜헤더·교시헤더·데이터 행, 서명 행 제외) ──
+        sign_row = data_start - 1
+        for ri in range(data_start - 3, cur_row):
+            if ri == sign_row:
+                continue
+            for i, (_, p) in enumerate(week_dp):
+                cell = ws.cell(ri, FIXED + 1 + i)
+                is_last_p  = (p == selected_periods[-1])
+                not_last_c = (FIXED + 1 + i < total_cols)
+                right_side = thick if (is_last_p and not_last_c) else thin
+                cell.border = Border(right=right_side, top=thin, bottom=thin, left=thin)
+
+        # 교시 열 너비
+        for i in range(len(week_dp)):
+            col_letter = openpyxl.utils.get_column_letter(FIXED + 1 + i)
+            ws.column_dimensions[col_letter].width = 8
+
+        # 주 사이 구분 빈 행
+        cur_row += 1
 
     out = BytesIO()
     wb.save(out)
