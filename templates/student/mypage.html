@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}마이페이지{% endblock %}
+{% block title %}마이페이지 - 자율학습 관리{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -45,14 +45,14 @@
                     <input type="hidden" name="action" value="profile">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">학번</label>
-                        <input type="text" name="student_id" class="form-control"
+                        <label for="s_student_id" class="form-label">학번</label>
+                        <input type="text" id="s_student_id" name="student_id" class="form-control"
                                value="{{ current_user.student_id or '' }}"
                                placeholder="학번 5자리" maxlength="5">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">성별</label>
-                        <select name="gender" class="form-select">
+                        <label for="s_gender" class="form-label">성별</label>
+                        <select id="s_gender" name="gender" class="form-select">
                             <option value="">선택 안 함</option>
                             <option value="M" {{ 'selected' if current_user.gender == 'M' }}>남</option>
                             <option value="F" {{ 'selected' if current_user.gender == 'F' }}>여</option>
@@ -75,17 +75,17 @@
                     <input type="hidden" name="action" value="password">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">현재 비밀번호</label>
-                        <input type="password" name="current_password" class="form-control" required>
+                        <label for="s_current_password" class="form-label">현재 비밀번호</label>
+                        <input type="password" id="s_current_password" name="current_password" class="form-control" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">새 비밀번호</label>
-                        <input type="password" name="new_password" class="form-control" required>
+                        <label for="s_new_password" class="form-label">새 비밀번호</label>
+                        <input type="password" id="s_new_password" name="new_password" class="form-control" required>
                         <div class="form-text">8자 이상, 영문 + 숫자 조합</div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">새 비밀번호 확인</label>
-                        <input type="password" name="confirm_password" class="form-control" required>
+                        <label for="s_confirm_password" class="form-label">새 비밀번호 확인</label>
+                        <input type="password" id="s_confirm_password" name="confirm_password" class="form-control" required>
                     </div>
                     <div class="d-grid">
                         <button type="submit" class="btn btn-secondary">변경하기</button>

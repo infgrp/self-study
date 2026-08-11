@@ -63,8 +63,8 @@ class Schedule(db.Model):
     __tablename__ = 'schedules'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    day_of_week = db.Column(db.Integer, nullable=False)  # 0=월 ~ 4=금
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    day_of_week = db.Column(db.Integer, nullable=False, index=True)  # 0=월 ~ 4=금
     period = db.Column(db.Integer, nullable=False)        # 교시 (1~4)
     subject = db.Column(db.String(50), nullable=False)
 
@@ -77,8 +77,8 @@ class Attendance(db.Model):
     __tablename__ = 'attendance'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False, default=date.today)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False, default=date.today, index=True)
     period = db.Column(db.Integer, nullable=False)
     # status 값: 'present'(출석), 'late'(지각), 'absent'(결석),
     #            'early_leave'(조퇴), 'approved_leave'(출석인정)
@@ -104,8 +104,8 @@ class StudyLog(db.Model):
     __tablename__ = 'study_logs'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False, default=date.today)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False, default=date.today, index=True)
     subject = db.Column(db.String(50), nullable=False)
     duration = db.Column(db.Integer, nullable=False)  # 분 단위
     memo = db.Column(db.Text)
@@ -155,8 +155,8 @@ class StudentRoom(db.Model):
     __tablename__ = 'student_rooms'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    study_room_id = db.Column(db.Integer, db.ForeignKey('study_rooms.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    study_room_id = db.Column(db.Integer, db.ForeignKey('study_rooms.id'), nullable=False, index=True)
     seat_number = db.Column(db.Integer, nullable=True)    # 배정된 좌석 번호 (랜덤 배치 후 설정)
     pos_x = db.Column(db.Float, nullable=True)             # 배치도 X 위치 (%, 0~100)
     pos_y = db.Column(db.Float, nullable=True)             # 배치도 Y 위치 (%, 0~100)
@@ -179,8 +179,8 @@ class StudyApplication(db.Model):
     __tablename__ = 'study_applications'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False)           # 신청 날짜
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False, index=True)  # 신청 날짜
     period = db.Column(db.Integer, nullable=False)       # 교시
     applied_at = db.Column(db.DateTime, default=datetime.now)  # 신청 시각
 

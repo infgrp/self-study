@@ -10,7 +10,7 @@
         <div class="card">
             <div class="card-header bg-primary text-white">학습 기록 추가</div>
             <div class="card-body">
-                <form method="POST">
+                <form method="POST" id="studyLogForm">
                     <div class="mb-3">
                         <label for="date" class="form-label">날짜</label>
                         <input type="date" class="form-control" id="date" name="date"
@@ -19,19 +19,19 @@
                     <div class="mb-3">
                         <label for="subject" class="form-label">과목</label>
                         <input type="text" class="form-control" id="subject" name="subject"
-                               placeholder="예: 수학" required>
+                               placeholder="예: 수학" maxlength="50" required>
                     </div>
                     <div class="mb-3">
                         <label for="duration" class="form-label">학습 시간 (분)</label>
                         <input type="number" class="form-control" id="duration" name="duration"
-                               min="1" max="600" placeholder="예: 60" required>
+                               min="1" max="1440" placeholder="예: 60" required>
                     </div>
                     <div class="mb-3">
                         <label for="memo" class="form-label">메모</label>
                         <textarea class="form-control" id="memo" name="memo" rows="3"
                                   placeholder="학습 내용을 간단히 적어주세요"></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">저장</button>
+                    <button type="submit" id="btnSaveLog" class="btn btn-primary w-100">저장</button>
                 </form>
             </div>
         </div>
@@ -43,6 +43,7 @@
             <div class="card-header bg-secondary text-white">최근 30일 기록</div>
             <div class="card-body">
                 {% if logs %}
+                <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
                         <tr><th>날짜</th><th>과목</th><th>시간</th><th>메모</th></tr>
@@ -58,6 +59,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
                 {% else %}
                 <p class="text-muted text-center">기록이 없습니다.</p>
                 {% endif %}

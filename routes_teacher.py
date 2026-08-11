@@ -1017,7 +1017,12 @@ def settings_periods():
                 is_active=is_active,
             ))
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash('자습 시간 설정 저장 중 오류가 발생했습니다. 다시 시도하세요.', 'danger')
+        return redirect(url_for('teacher.settings'))
     saved_labels = [DAY_TYPE_LABELS.get(t, t) for t in targets]
     flash(f'{", ".join(saved_labels)} 자습 시간이 저장되었습니다.', 'success')
     return redirect(url_for('teacher.settings'))

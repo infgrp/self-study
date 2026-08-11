@@ -31,54 +31,54 @@
                 <ul class="navbar-nav me-auto">
                     {% if current_user.role == 'student' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('student.dashboard') }}">대시보드</a>
+                        <a class="nav-link{% if request.endpoint == 'student.dashboard' %} active{% endif %}" aria-current="{% if request.endpoint == 'student.dashboard' %}page{% endif %}" href="{{ url_for('student.dashboard') }}">대시보드</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('student.apply') }}">자습 신청</a>
+                        <a class="nav-link{% if request.endpoint == 'student.apply' %} active{% endif %}" aria-current="{% if request.endpoint == 'student.apply' %}page{% endif %}" href="{{ url_for('student.apply') }}">자습 신청</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('student.my_attendance') }}">내 출결</a>
+                        <a class="nav-link{% if request.endpoint == 'student.my_attendance' %} active{% endif %}" aria-current="{% if request.endpoint == 'student.my_attendance' %}page{% endif %}" href="{{ url_for('student.my_attendance') }}">내 출결</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('student.study_log') }}">학습 기록</a>
+                        <a class="nav-link{% if request.endpoint == 'student.study_log' %} active{% endif %}" aria-current="{% if request.endpoint == 'student.study_log' %}page{% endif %}" href="{{ url_for('student.study_log') }}">학습 기록</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('student.mypage') }}">마이페이지</a>
+                        <a class="nav-link{% if request.endpoint == 'student.mypage' %} active{% endif %}" aria-current="{% if request.endpoint == 'student.mypage' %}page{% endif %}" href="{{ url_for('student.mypage') }}">마이페이지</a>
                     </li>
                     {% elif current_user.role == 'teacher' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.dashboard') }}">대시보드</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.dashboard' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.dashboard' %}page{% endif %}" href="{{ url_for('teacher.dashboard') }}">대시보드</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.students') }}">학생 관리</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.students' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.students' %}page{% endif %}" href="{{ url_for('teacher.students') }}">학생 관리</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.applications') }}">신청 현황</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.applications' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.applications' %}page{% endif %}" href="{{ url_for('teacher.applications') }}">신청 현황</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.attendance_view') }}">출석 관리</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.attendance_view' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.attendance_view' %}page{% endif %}" href="{{ url_for('teacher.attendance_view') }}">출석 관리</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.statistics') }}">참여 통계</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.statistics' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.statistics' %}page{% endif %}" href="{{ url_for('teacher.statistics') }}">참여 통계</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.settings') }}">설정</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.settings' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.settings' %}page{% endif %}" href="{{ url_for('teacher.settings') }}">설정</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('teacher.mypage') }}">마이페이지</a>
+                        <a class="nav-link{% if request.endpoint == 'teacher.mypage' %} active{% endif %}" aria-current="{% if request.endpoint == 'teacher.mypage' %}page{% endif %}" href="{{ url_for('teacher.mypage') }}">마이페이지</a>
                     </li>
                     {% elif current_user.role == 'admin' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_bp.dashboard') }}">대시보드</a>
+                        <a class="nav-link{% if request.endpoint == 'admin_bp.dashboard' %} active{% endif %}" aria-current="{% if request.endpoint == 'admin_bp.dashboard' %}page{% endif %}" href="{{ url_for('admin_bp.dashboard') }}">대시보드</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_bp.users') }}">사용자 관리</a>
+                        <a class="nav-link{% if request.endpoint == 'admin_bp.users' %} active{% endif %}" aria-current="{% if request.endpoint == 'admin_bp.users' %}page{% endif %}" href="{{ url_for('admin_bp.users') }}">사용자 관리</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_bp.teachers') }}">교사 승인</a>
+                        <a class="nav-link{% if request.endpoint == 'admin_bp.teachers' %} active{% endif %}" aria-current="{% if request.endpoint == 'admin_bp.teachers' %}page{% endif %}" href="{{ url_for('admin_bp.teachers') }}">교사 승인</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_bp.change_password') }}">마이페이지</a>
+                        <a class="nav-link{% if request.endpoint == 'admin_bp.change_password' %} active{% endif %}" aria-current="{% if request.endpoint == 'admin_bp.change_password' %}page{% endif %}" href="{{ url_for('admin_bp.change_password') }}">마이페이지</a>
                     </li>
                     {% endif %}
                 </ul>
@@ -124,14 +124,13 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // ── CSRF 자동 주입 ──
-    // 모든 POST form 제출 시 csrf_token hidden 필드를 자동으로 추가합니다.
     (function () {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (!meta) return;
         const token = meta.content;
         document.addEventListener('submit', function (e) {
             const form = e.target;
+            // CSRF 자동 주입
             if (form.method.toUpperCase() === 'POST' &&
                 !form.querySelector('input[name="csrf_token"]')) {
                 const inp = document.createElement('input');
@@ -139,6 +138,18 @@
                 inp.name  = 'csrf_token';
                 inp.value = token;
                 form.appendChild(inp);
+            }
+            // 중복 제출 방지: 제출 버튼을 즉시 비활성화
+            const submitBtn = form.querySelector('[type="submit"]:not([data-no-disable])');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.dataset.originalText = submitBtn.textContent;
+                submitBtn.textContent = '처리 중...';
+                // 3초 후 복원 (서버 응답 없을 경우 안전망)
+                setTimeout(function () {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = submitBtn.dataset.originalText;
+                }, 3000);
             }
         });
     })();

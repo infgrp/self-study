@@ -60,7 +60,7 @@ def dashboard():
 
     # 오늘 일자 유형 판별
     day_type = get_day_type(today)
-    day_type_label = DAY_TYPE_LABELS[day_type]
+    day_type_label = DAY_TYPE_LABELS.get(day_type, day_type)
     holiday_name = get_holiday_name(today)
 
     # 해당 일자 유형의 자습 시간 설정
@@ -182,7 +182,12 @@ def apply():
                     db.session.add(app)
                     applied_count += 1
 
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash('자습 신청 저장 중 오류가 발생했습니다. 다시 시도하세요.', 'danger')
+            return redirect(url_for('student.apply'))
         flash(f'{year}년 {month}월 자습 신청이 완료되었습니다. ({applied_count}건)', 'success')
         return redirect(url_for('student.apply', year=year, month=month))
 
@@ -276,6 +281,14 @@ def study_log():
 
         if duration <= 0:
             flash('학습 시간은 1분 이상이어야 합니다.', 'danger')
+            return redirect(url_for('student.study_log'))
+
+        if duration > 1440:
+            flash('학습 시간은 하루 최대 1440분(24시간)을 초과할 수 없습니다.', 'danger')
+            return redirect(url_for('student.study_log'))
+
+        if len(subject) > 50:
+            flash('과목명은 50자 이내여야 합니다.', 'danger')
             return redirect(url_for('student.study_log'))
 
         log_date = date.today()
@@ -685,6 +698,6 @@ def mypage():
         current_user.set_password(new_pw)
         db.session.commit()
         flash('비밀번호가 변경되었습니다. 다시 로그인해 주세요.', 'success')
-        return redirect(url_for('student.dashboard'))
+        return redirect(url_for('auth.login'))
 
     return render_template('student/mypage.html')

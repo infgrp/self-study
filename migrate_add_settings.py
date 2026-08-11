@@ -44,7 +44,7 @@ def main():
     created = False
     if not table_exists(cur, 'system_settings'):
         cur.execute("""
-            CREATE TABLE system_settings (
+            CREATE TABLE IF NOT EXISTS system_settings (
                 key         VARCHAR(50) PRIMARY KEY,
                 value       VARCHAR(200) NOT NULL,
                 value_type  VARCHAR(10)  NOT NULL,

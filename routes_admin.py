@@ -19,6 +19,25 @@ from audit import log_audit
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
+
+def _purge_user_data(user_id, role=None):
+    """user_id의 모든 종속 데이터를 FK 순서대로 안전하게 삭제한다.
+    역할에 관계없이 완전 정리하므로 delete_user / reject_teacher 양쪽에서 사용한다."""
+    StudyApplication.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    StudentRoom.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    att_ids = [a.id for a in Attendance.query.filter_by(user_id=user_id)
+                                             .with_entities(Attendance.id).all()]
+    if att_ids:
+        AttendanceLog.query.filter(
+            AttendanceLog.attendance_id.in_(att_ids)
+        ).delete(synchronize_session=False)
+    Attendance.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    AttendanceLog.query.filter_by(changed_by=user_id).update(
+        {'changed_by': None}, synchronize_session=False
+    )
+    StudyLog.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Schedule.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
 # SQLite DB 파일 경로
 _HERE   = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(_HERE, 'instance', 'self_study.db')
@@ -89,10 +108,7 @@ def reject_teacher(user_id):
         return redirect(url_for('admin_bp.teachers'))
 
     name = teacher.name
-    # FK: AttendanceLog.changed_by 참조 정리 후 삭제
-    AttendanceLog.query.filter_by(changed_by=user_id).update(
-        {'changed_by': None}, synchronize_session=False
-    )
+    _purge_user_data(user_id, role='teacher')
     db.session.delete(teacher)
     db.session.commit()
     flash(f'"{name}" 교사 계정이 삭제(거부)되었습니다.', 'warning')
@@ -259,23 +275,7 @@ def delete_user(user_id):
         return redirect(url_for('admin_bp.users'))
 
     # 연관 데이터 먼저 삭제 (FK 제약 방지)
-    StudyApplication.query.filter_by(user_id=user_id).delete()
-    StudentRoom.query.filter_by(user_id=user_id).delete()
-    # AttendanceLog는 ORM cascade가 bulk delete를 우회하므로 명시적으로 삭제
-    att_ids = [a.id for a in Attendance.query.filter_by(user_id=user_id)
-                                             .with_entities(Attendance.id).all()]
-    if att_ids:
-        AttendanceLog.query.filter(
-            AttendanceLog.attendance_id.in_(att_ids)
-        ).delete(synchronize_session=False)
-    Attendance.query.filter_by(user_id=user_id).delete()
-    # 교사 삭제 시 AttendanceLog.changed_by 참조 정리
-    if user.role == 'teacher':
-        AttendanceLog.query.filter_by(changed_by=user_id).update(
-            {'changed_by': None}, synchronize_session=False
-        )
-    StudyLog.query.filter_by(user_id=user_id).delete()
-    Schedule.query.filter_by(user_id=user_id).delete()
+    _purge_user_data(user_id, role=user.role)
 
     name = user.name
     target_username = user.username

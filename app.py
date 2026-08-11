@@ -352,6 +352,8 @@ def _start_scheduler(app):
             args=[app],
             id='auto_early_leave',
             replace_existing=True,
+            misfire_grace_time=3600,  # 서버 재시작·부하 시 1시간 내 실행 보장
+            coalesce=True,            # 미스파이어 누적 시 1회만 실행
         )
         scheduler.start()
         log_audit('system.scheduler_started')

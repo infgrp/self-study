@@ -126,7 +126,12 @@ def register():
         )
         user.set_password(password)
         db.session.add(user)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash('회원가입 처리 중 오류가 발생했습니다. 다시 시도하세요.', 'danger')
+            return render_template('register.html')
 
         if role == 'teacher':
             flash('회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.', 'info')
